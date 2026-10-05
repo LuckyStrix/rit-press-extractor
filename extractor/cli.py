@@ -67,6 +67,17 @@ def cmd_process(args) -> int:
     return 0
 
 
+def cmd_debug(args) -> int:
+    from . import netguard
+
+    netguard.enable()
+    from .debug import dump
+
+    for p in args.files:
+        dump(Path(p), args.unmasked)
+    return 0
+
+
 def cmd_serve(args) -> int:
     from . import netguard
 
@@ -92,6 +103,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-o", "--output", default=str(DEFAULT_CSV))
     s.add_argument("--lang", help="force a Tesseract language, e.g. 'fra' or 'eng+deu'")
     s.set_defaults(func=cmd_process)
+
+    s = sub.add_parser("debug", help="print OCR line layout with letters masked (safe to share)")
+    s.add_argument("files", nargs="+")
+    s.add_argument("--unmasked", action="store_true", help="show real text (for your eyes only)")
+    s.set_defaults(func=cmd_debug)
 
     s = sub.add_parser("serve", help="phone capture page on localhost (expose with tailscale serve)")
     s.add_argument("--port", type=int, default=8765)
