@@ -25,7 +25,7 @@
     background: var(--fg); background-clip: content-box; padding: 4px; cursor: pointer; }
   #shoot:active { transform: scale(.94); }
   #shoot:disabled { opacity: .35; }
-  #status { justify-self: end; font-size: 13px; color: var(--dim); text-align: right; min-height: 1em; }
+  #status { justify-self: end; font-size: 13px; max-width: 40vw; overflow-wrap: anywhere; color: var(--dim); text-align: right; min-height: 1em; }
   #status.bad { color: var(--bad); }
 </style>
 </head>
@@ -79,13 +79,14 @@ async function pump() {
   try {
     const res = await fetch('/api/capture?n=' + shot.n, { method: 'POST', body: shot.blob,
       headers: { 'Content-Type': 'image/jpeg', 'X-Capture': '1' } });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || res.status);
+    let body = {};
+    try { body = await res.json(); } catch (e) { throw new Error('HTTP ' + res.status); }
+    if (!res.ok) throw new Error(body.error || 'HTTP ' + res.status);
     queue.shift();
     const renamed = body.saved.replace(/\.jpg$/, '') !== String(shot.n).padStart(4, '0');
     setStatus(queue.length ? `${queue.length} sending` : (renamed ? `saved as ${body.saved}` : `✓ ${shot.n}`));
   } catch (e) {
-    setStatus(`${queue.length} waiting – retrying`, true);
+    setStatus(`${queue.length} waiting – ${e.message || 'offline'}`, true);
     await new Promise(r => setTimeout(r, 3000));
   }
   sending = false;

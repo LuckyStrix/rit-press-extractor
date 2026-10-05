@@ -116,6 +116,31 @@ def make_handler(store: CaptureStore):
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
+        def _reject(self, status: int, reason: str) -> None:
+            print(f"  upload rejected: {reason}", flush=True)  # reason only, never content
+            self._json(status, {"error": reason})
+
+        def _read_body(self) -> bytes | None:
+            """Read the upload, with Content-Length or chunked encoding (HTTP/2 clients via a proxy)."""
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                chunks, total = [], 0
+                while True:
+                    size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                    if size == 0:
+                        while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                            pass  # skip trailers
+                        break
+                    total += size
+                    if total > MAX_UPLOAD:
+                        return None
+                    chunks.append(self.rfile.read(size))
+                    self.rfile.readline()  # CRLF after each chunk
+                return b"".join(chunks)
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_UPLOAD:
+                return None
+            return self.rfile.read(length)
+
         def do_POST(self):
             if not self._allowed():
                 return
@@ -124,24 +149,30 @@ def make_handler(store: CaptureStore):
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             # Custom header forces a CORS preflight, which we never approve: blocks cross-site uploads.
             if self.headers.get("X-Capture") != "1":
-                return self._json(HTTPStatus.FORBIDDEN, {"error": "missing header"})
+                return self._reject(HTTPStatus.FORBIDDEN, "missing header")
             n = parse_qs(url.query).get("n", [""])[0]
             if not re.fullmatch(r"\d{1,9}", n):
-                return self._json(HTTPStatus.BAD_REQUEST, {"error": "number must be digits"})
-            length = int(self.headers.get("Content-Length") or 0)
-            if not 0 < length <= MAX_UPLOAD:
-                return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "bad size"})
-            data = self.rfile.read(length)
+                return self._reject(HTTPStatus.BAD_REQUEST, "number must be digits")
+            try:
+                data = self._read_body()
+            except ValueError:
+                data = None
+            if not data:
+                return self._reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                                    f"empty or oversized upload (Content-Length={self.headers.get('Content-Length')}, "
+                                    f"Transfer-Encoding={self.headers.get('Transfer-Encoding')})")
             try:
                 with Image.open(io.BytesIO(data)) as img:
                     img.verify()
-                    if img.format != "JPEG":
-                        raise ValueError
+                    fmt = img.format
             except Exception:
-                return self._json(HTTPStatus.BAD_REQUEST, {"error": "not a JPEG image"})
+                fmt = None
+            if fmt != "JPEG":
+                return self._reject(HTTPStatus.BAD_REQUEST, f"not a JPEG image ({fmt or 'unreadable'}, {len(data)} bytes)")
             number = int(n)
             path = store.save(number, data)
             store.jobs.put((path, str(number)))
+            print(f"  received #{number} -> {path.name} ({len(data) // 1024} KB)", flush=True)
             self._json(HTTPStatus.OK, {"saved": path.name, "next": number + 1})
 
     return Handler
