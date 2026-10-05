@@ -25,6 +25,10 @@ TESSERACT = (os.environ.get("TESSERACT") or shutil.which("tesseract")
 # Harmless PyTorch notices from EasyOCR on a CPU-only machine; they don't affect results.
 warnings.filterwarnings("ignore", message=r".*pin_memory.*no accelerator", category=UserWarning)
 warnings.filterwarnings("ignore", message=r".*quantize_per_tensor.*deprecated", category=UserWarning)
+# EasyOCR's beam search overflows on crops where almost all probability sat on ignored
+# characters; that read comes out as garbage, and the re-read tie-breaker discards any
+# read that doesn't match Tesseract exactly, so the warning is noise.
+warnings.filterwarnings("ignore", message=r"overflow encountered", category=RuntimeWarning, module=r"easyocr")
 
 # Tesseract script name (from OSD) -> Tesseract language model to use.
 SCRIPT_TO_TESS = {
