@@ -1,7 +1,7 @@
 """Phone capture server. Listens on 127.0.0.1 only; `tailscale serve` exposes it to your tailnet over HTTPS.
 
 Photos are saved to data/captures (owner-only permissions) and processed in a
-background thread; rows are appended to data/results.csv.
+background thread; rows are appended to the output CSV (default data/results.csv).
 """
 from __future__ import annotations
 
@@ -33,11 +33,11 @@ SECURITY_HEADERS = {
 
 
 class CaptureStore:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, csv_path: Path):
         self.captures = data_dir / "captures"
         self.captures.mkdir(parents=True, exist_ok=True)
         os.chmod(self.captures, 0o700)
-        self.csv = data_dir / "results.csv"
+        self.csv = csv_path
         self.jobs: queue.Queue[tuple[Path, str]] = queue.Queue()
         self.lock = threading.Lock()
 
@@ -147,8 +147,8 @@ def make_handler(store: CaptureStore):
     return Handler
 
 
-def serve(port: int, data_dir: Path) -> None:
-    store = CaptureStore(data_dir)
+def serve(port: int, data_dir: Path, csv_path: Path) -> None:
+    store = CaptureStore(data_dir, csv_path)
     threading.Thread(target=store.worker, daemon=True).start()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store))
     print(f"Capture server on http://127.0.0.1:{port} (localhost only).")

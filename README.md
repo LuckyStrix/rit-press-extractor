@@ -32,7 +32,7 @@ digits (`0042.jpg`), those digits go in `item_number`.
 **From a phone** (camera page, over Tailscale):
 
 ```bash
-.venv/bin/python -m extractor serve           # listens on 127.0.0.1:8765 only
+.venv/bin/python -m extractor serve [-o data/batch1.csv]   # listens on 127.0.0.1:8765 only
 tailscale serve --bg --https=8443 8765        # HTTPS, reachable only inside your tailnet
 ```
 
@@ -42,7 +42,7 @@ the preview and tap the shutter. The number is the item number. It goes up by 1
 after every shot, and you can tap it to type a different one. Shots queue on the
 phone and retry until the laptop has them, so none get lost if the connection
 drops. Each photo is saved as `data/captures/<number>.jpg` and processed in the
-background, and its row is added to `data/results.csv`. A reused number never
+background, and its row is added to the output CSV (`-o`, default `data/results.csv`). A reused number never
 overwrites an earlier photo (it saves `0012-2.jpg`).
 
 Stop sharing with `tailscale serve --https=8443 off`. **Never use `tailscale funnel`**:

@@ -73,7 +73,7 @@ def cmd_serve(args) -> int:
     netguard.enable()
     from .server import serve
 
-    serve(args.port, ensure_private_dir(DATA_DIR))
+    serve(args.port, ensure_private_dir(DATA_DIR), Path(args.output))
     return 0
 
 
@@ -95,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("serve", help="phone capture page on localhost (expose with tailscale serve)")
     s.add_argument("--port", type=int, default=8765)
+    s.add_argument("-o", "--output", default=str(DEFAULT_CSV))
     s.set_defaults(func=cmd_serve)
 
     args = p.parse_args(argv)
