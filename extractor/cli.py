@@ -135,7 +135,7 @@ def cmd_evaluate(args) -> int:
 
     if args.template:
         return make_template(Path(args.results), Path(args.truth))
-    return evaluate(Path(args.results), Path(args.truth), args.show)
+    return evaluate(Path(args.results), Path(args.truth), args.show, args.diff)
 
 
 def cmd_truth(args) -> int:
@@ -191,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("truth")
     s.add_argument("--template", action="store_true", help="create a blank answer key listing the results' files")
     s.add_argument("--show", action="store_true", help="print the wrong values (for your eyes only)")
+    s.add_argument("--diff", action="store_true", help="describe each wrong value with letters masked (safe to share)")
     s.set_defaults(func=cmd_evaluate)
 
     s = sub.add_parser("debug", help="print OCR line layout with letters masked (safe to share)")

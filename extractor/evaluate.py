@@ -49,7 +49,34 @@ def _norm_words(text: str) -> str:
     return " ".join(text.split())
 
 
-def evaluate(results: Path, truth: Path, show: bool = False) -> int:
+def _diff_kind(got: str, want: str) -> str:
+    alnum = lambda t: "".join(c for c in t if c.isalnum())
+    if got.lower() == want.lower():
+        return "CASE"
+    if alnum(got) == alnum(want):
+        return "PUNCT"
+    if alnum(got).lower() == alnum(want).lower():
+        return "CASE+PUNCT"
+    return "LETTERS"
+
+
+def masked_diff(got: str, want: str) -> list[str]:
+    """Describe how two word strings differ, with letters masked (safe to share)."""
+    import difflib
+
+    from .debug import mask
+
+    g, w = got.split(), want.split()
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, [x.lower() for x in g], [x.lower() for x in w]).get_opcodes():
+        if op == "equal" or (op == "replace" and i2 - i1 == j2 - j1):
+            out += [f"{_diff_kind(a, b)}: tool {mask(a)!r} key {mask(b)!r}" for a, b in zip(g[i1:i2], w[j1:j2]) if a != b]
+        else:
+            out.append(f"{op.upper()}: tool {mask(' '.join(g[i1:i2]))!r} key {mask(' '.join(w[j1:j2]))!r}")
+    return out
+
+
+def evaluate(results: Path, truth: Path, show: bool = False, diff: bool = False) -> int:
     rows = {r["file"]: r for r in csv.DictReader(open(results, encoding="utf-8"))}  # last row per file wins
     key = [t for t in csv.DictReader(open(truth, encoding="utf-8"))
            if t.get("release_date", "").strip() or t.get("first_five_words", "").strip()]
@@ -86,6 +113,15 @@ def evaluate(results: Path, truth: Path, show: bool = False) -> int:
             if show and bucket in ("verified_wrong", "flagged_wrong"):
                 for f, got, want in items:
                     print(f"      {f}: tool '{got}'  vs  key '{want}'")
+            if diff and bucket in ("verified_wrong", "flagged_wrong"):
+                for f, got, want in items:
+                    for d in masked_diff(got, want):
+                        print(f"      {f}  {d}")
+                    reasons = rows[f].get("review_reasons", "")
+                    if reasons:
+                        from .debug import mask
+
+                        print(f"      {f}  reasons: {mask(reasons)[:300]}")
     if missing_rows:
         print(f"\nIn the key but not in the results: {', '.join(missing_rows)}")
     bad = sum(len(tally[n]["verified_wrong"]) for n, _, _ in fields)
