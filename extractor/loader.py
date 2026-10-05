@@ -39,6 +39,9 @@ def load_pages(path: Path) -> Iterator[tuple[int, Image.Image]]:
                 yield i, Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
         return
     with Image.open(path) as img:
+        if img.format == "MPO":  # extra frames are gain maps/depth data, not pages
+            yield 1, ImageOps.exif_transpose(img.copy()).convert("RGB")
+            return
         for i, frame in enumerate(ImageSequence.Iterator(img), start=1):
             # Phone photos store rotation in EXIF; apply it before anything else.
             yield i, ImageOps.exif_transpose(frame.copy()).convert("RGB")

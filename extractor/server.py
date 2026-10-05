@@ -167,7 +167,7 @@ def make_handler(store: CaptureStore):
                     fmt = img.format
             except Exception:
                 fmt = None
-            if fmt != "JPEG":
+            if fmt not in ("JPEG", "MPO"):  # MPO = JPEG with extra images (iPhone HDR gain map)
                 return self._reject(HTTPStatus.BAD_REQUEST, f"not a JPEG image ({fmt or 'unreadable'}, {len(data)} bytes)")
             number = int(n)
             path = store.save(number, data)

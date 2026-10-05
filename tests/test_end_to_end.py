@@ -51,3 +51,14 @@ def test_heic_and_pdf_inputs(tmp_path):
     for path in (heic, pdf):
         pages = list(load_pages(path))
         assert len(pages) == 1 and isinstance(pages[0][1], Image.Image) and pages[0][1].width > 1000
+
+
+def test_mpo_uses_only_primary_image(tmp_path):
+    """iPhones attach an HDR gain map as a second JPEG frame (MPO); it must not become a page."""
+    page, gain_map = render(SPECS[0], width=800), Image.new("RGB", (200, 260), "gray")
+    path = tmp_path / "0008.jpg"
+    page.save(path, format="MPO", save_all=True, append_images=[gain_map])
+    with Image.open(path) as img:
+        assert img.format == "MPO" and img.n_frames == 2
+    pages = list(load_pages(path))
+    assert len(pages) == 1 and pages[0][1].size == page.size
