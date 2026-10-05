@@ -19,7 +19,7 @@ class Options:
     # Focused crop re-read of the date and opening words (experimental):
     # "off", "all" (both engines), "easyocr" (EasyOCR always), "tiebreak" (EasyOCR, only
     # where the full-page reads disagree, and only kept if it then agrees with Tesseract)
-    reread: str = "off"
+    reread: str = "tiebreak"
     best_model: bool = False  # Tesseract "best" models (setup --tess-best)
     multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
     clean: bool = False  # deskew + remove uneven lighting + light denoise before OCR

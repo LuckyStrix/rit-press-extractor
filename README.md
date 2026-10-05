@@ -161,16 +161,19 @@ print the wrong values. Keep the key in `data/` so it stays private.
 
 ## Optional OCR settings
 
-These are off by default. Each was measured on 17 real 1969 releases against a
-hand-made answer key, and none beat the default:
+Each was measured on 17 real 1969 releases against a hand-made answer key. Only the
+re-read tie-breaker helped, so it's the only one on by default:
 
 | flag | what it does | result vs. default (words verified & right / words wrong / verified-but-wrong) |
 |---|---|---|
-| (default) | | **9 / 1 / 0** |
+| no options | | 9 / 1 / 0 |
 | `--best-model` | Tesseract's float "best" models (download once with `setup --tess-best`) | 5 / 3 / 0: more misreads, and lower confidence on correct words |
 | `--clean` | deskew, remove uneven lighting, light denoise before OCR | 5 / 1 / 0: same accuracy, fewer words cleared the checks |
 | `--best-model --clean` | both | 4 / 1 / **1**: produced a verified-but-wrong word, **don't use** |
-| `--reread` | crop and re-read each field in single-line mode | dropped verified fields from 23 to 9 of 34 |
+| `--reread tiebreak` (**default**) | when the engines disagree on a field, EasyOCR re-reads just that row at full resolution. The re-read is kept only if it then agrees with Tesseract, so it can never undo an agreement. | **10 / 1 / 0** (+1 verified) |
+| `--reread easyocr` | EasyOCR always re-reads the rows | 9 / 1 / 0: fixed one row, lost another |
+| `--reread all` | both engines re-read the rows | dropped verified fields from 23 to 9 of 34 |
+| `--reread off` | no re-read | the 9 / 1 / 0 baseline above |
 | `--multipass` | three differently cleaned Tesseract passes per field, majority vote (only with `--reread`) | not yet measured |
 
 They work with both `process` and `serve`. Re-measure with `evaluate` before
