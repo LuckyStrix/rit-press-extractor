@@ -130,6 +130,13 @@ def cmd_evaluate(args) -> int:
     return evaluate(Path(args.results), Path(args.truth), args.show)
 
 
+def cmd_truth(args) -> int:
+    from .truth import run
+
+    ensure_private_dir(DATA_DIR)
+    return run(Path(args.folder), Path(args.output), not args.no_open)
+
+
 def cmd_serve(args) -> int:
     from . import netguard
 
@@ -179,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("files", nargs="+")
     s.add_argument("--unmasked", action="store_true", help="show real text (for your eyes only)")
     s.set_defaults(func=cmd_debug)
+
+    s = sub.add_parser("truth", help="type the correct answers for a folder of photos (answer key)")
+    s.add_argument("folder")
+    s.add_argument("-o", "--output", default=str(DATA_DIR / "truth.csv"))
+    s.add_argument("--no-open", action="store_true", help="don't open each photo in the image viewer")
+    s.set_defaults(func=cmd_truth)
 
     s = sub.add_parser("serve", help="phone capture page on localhost (expose with tailscale serve)")
     s.add_argument("--port", type=int, default=8765)

@@ -141,10 +141,15 @@ The tool can only flag what it doubts. To know how often it's actually right,
 build an answer key from the paper originals:
 
 ```bash
-.venv/bin/python -m extractor evaluate data/results.csv data/truth.csv --template   # blank key
-# fill in release_date and first_five_words for each file, from the paper, not the tool
+.venv/bin/python -m extractor truth data/captures                  # type the answers -> data/truth.csv
 .venv/bin/python -m extractor evaluate data/results.csv data/truth.csv
 ```
+
+`truth` opens each photo in your image viewer and asks for the release date
+(`1969-01-09` or `January 9, 1969`) and the first five words, typed exactly as
+on the paper with leading articles left out. Enter leaves a field blank, `b` goes
+back, `s` skips, and `q` saves and quits. Running it again picks up where you
+stopped. It never shows the tool's answers, so they can't bias yours.
 
 The report gives counts per field: verified and right, **verified but wrong**,
 flagged and wrong (caught), flagged but right (needless review), and no answer.
