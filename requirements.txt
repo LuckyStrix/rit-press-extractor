@@ -1,0 +1,8 @@
+# Install torch CPU build first to avoid a multi-GB CUDA download:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+easyocr==1.7.2
+pillow>=12
+pillow-heif>=1.8
+pymupdf>=1.28
+opencv-python-headless>=4.11
+pytest>=9

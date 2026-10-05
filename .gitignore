@@ -1,0 +1,18 @@
+# Press-release content and outputs never go into git
+data/
+input/
+output/
+*.csv
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
+*.tif
+*.tiff
+*.pdf
+# Downloaded OCR models
+models/
+.venv/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000">
+<title>Capture</title>
+<style>
+  :root { color-scheme: dark; --fg: #f5f5f5; --dim: #8a8a8a; --bad: #ff6b6b; }
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #000; color: var(--fg);
+    font: 16px/1.2 -apple-system, system-ui, sans-serif; overflow: hidden; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  #flash.on { opacity: .8; transition: none; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; padding: 20px 24px calc(20px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+  #num { justify-self: start; width: 6.5ch; background: transparent; color: var(--fg); border: 0;
+    border-bottom: 1px solid rgba(255,255,255,.35); font: 600 28px/1 ui-monospace, monospace;
+    padding: 4px 0; text-align: left; border-radius: 0; }
+  #num:focus { outline: none; border-bottom-color: var(--fg); }
+  #shoot { width: 76px; height: 76px; border-radius: 50%; border: 4px solid var(--fg);
+    background: var(--fg); background-clip: content-box; padding: 4px; cursor: pointer; }
+  #shoot:active { transform: scale(.94); }
+  #shoot:disabled { opacity: .35; }
+  #status { justify-self: end; font-size: 13px; color: var(--dim); text-align: right; min-height: 1em; }
+  #status.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline muted></video>
+<div id="flash"></div>
+<div class="bar">
+  <input id="num" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Item number">
+  <button id="shoot" aria-label="Capture" disabled></button>
+  <div id="status"></div>
+</div>
+<script>
+const video = document.getElementById('v'), num = document.getElementById('num'),
+      shoot = document.getElementById('shoot'), status = document.getElementById('status'),
+      flash = document.getElementById('flash');
+const queue = [];  // shots waiting to upload; retried until the laptop accepts them
+let track = null, sending = false;
+
+function setStatus(text, bad = false) { status.textContent = text; status.classList.toggle('bad', bad); }
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+      facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
+    video.srcObject = stream;
+    track = stream.getVideoTracks()[0];
+    await video.play();
+    shoot.disabled = false;
+  } catch (e) {
+    setStatus(window.isSecureContext ? 'camera blocked' : 'needs https', true);
+  }
+}
+
+async function grabJpeg() {
+  if ('ImageCapture' in window) {  // full sensor resolution where supported (Android Chrome)
+    try {
+      const blob = await new ImageCapture(track).takePhoto();
+      if (blob.type === 'image/jpeg') return blob;
+    } catch (e) { /* fall back to the video frame */ }
+  }
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.95));
+}
+
+async function pump() {
+  if (sending || !queue.length) return;
+  sending = true;
+  const shot = queue[0];
+  try {
+    const res = await fetch('/api/capture?n=' + shot.n, { method: 'POST', body: shot.blob,
+      headers: { 'Content-Type': 'image/jpeg', 'X-Capture': '1' } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.status);
+    queue.shift();
+    const renamed = body.saved.replace(/\.jpg$/, '') !== String(shot.n).padStart(4, '0');
+    setStatus(queue.length ? `${queue.length} sending` : (renamed ? `saved as ${body.saved}` : `✓ ${shot.n}`));
+  } catch (e) {
+    setStatus(`${queue.length} waiting – retrying`, true);
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  sending = false;
+  pump();
+}
+
+shoot.addEventListener('click', async () => {
+  const n = parseInt(num.value, 10);
+  if (!(n >= 0)) { num.focus(); return; }
+  flash.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove('on')));
+  if (navigator.vibrate) navigator.vibrate(30);
+  const blob = await grabJpeg();
+  queue.push({ n, blob });
+  num.value = n + 1;
+  try { localStorage.setItem('next', num.value); } catch (e) {}
+  setStatus(`${queue.length} sending`);
+  pump();
+});
+
+num.addEventListener('input', () => {
+  num.value = num.value.replace(/\D/g, '');
+  try { localStorage.setItem('next', num.value); } catch (e) {}
+});
+num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); });
+
+(async () => {
+  let saved = null;
+  try { saved = localStorage.getItem('next'); } catch (e) {}
+  try {
+    const { next } = await (await fetch('/api/next')).json();
+    num.value = Math.max(next, parseInt(saved || '0', 10) || 0);
+  } catch (e) { num.value = saved || 1; }
+  startCamera();
+})();
+</script>
+</body>
+</html>
