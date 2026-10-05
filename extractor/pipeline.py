@@ -7,7 +7,7 @@ from PIL import Image
 
 from . import ocr
 from .reread import regions_from, reread
-from .extract import read_fields, reconcile_date, reconcile_words
+from .extract import _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
 from .words import LANG_TO_TESS, detect_language
 
@@ -16,7 +16,10 @@ LOW_RES_WIDTH = 1500
 
 @dataclass(frozen=True)
 class Options:
-    reread: bool = False  # second, focused read of the date and opening words (experimental)
+    # Focused crop re-read of the date and opening words (experimental):
+    # "off", "all" (both engines), "easyocr" (EasyOCR always), "tiebreak" (EasyOCR, only
+    # where the full-page reads disagree, and only kept if it then agrees with Tesseract)
+    reread: str = "off"
     best_model: bool = False  # Tesseract "best" models (setup --tess-best)
     multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
     clean: bool = False  # deskew + remove uneven lighting + light denoise before OCR
@@ -85,7 +88,7 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
             reasons.append(f"EasyOCR model for {easy_langs} not installed (run: python -m extractor setup "
                            f"--langs {' '.join(easy_langs)}); single-engine result")
 
-    if opts.reread and readings[0].start is not None:
+    if opts.reread != "off" and readings[0].start is not None:
         _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts)
 
     date = reconcile_date(readings)
@@ -107,13 +110,36 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     )
 
 
+def _dates_agree(a, b) -> bool:
+    return a is not None and b is not None and a.iso == b.iso and _alnum(a.printed) == _alnum(b.printed)
+
+
 def _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts: Options) -> None:
-    """Replace each engine's full-page fields with its focused re-read where that succeeded.
+    """Replace engines' full-page fields with focused re-reads (see Options.reread).
     Crop positions come from Tesseract's layout, so layout flags stay with that engine."""
-    regions = regions_from(lines, readings[0])
+    mode = opts.reread
+    tess = readings[0]
+    words_disagree = dates_disagree = True
+    if mode == "tiebreak":
+        if len(readings) < 2:
+            return
+        other = readings[1]
+        words_disagree = not _same_words([w.text for w in tess.words], [w.text for w in other.words])
+        dates_disagree = tess.date is not None and not _dates_agree(tess.date, other.date)
+        if not (words_disagree or dates_disagree):
+            return
+    regions = regions_from(lines, tess)
     for r in readings:
+        primary = r is tess
+        if primary and mode != "all":
+            continue
         rr = reread(r.engine, page_img, regions, lang, tess_lang, easy_langs, opts.best_model, opts.multipass)
-        primary = r is readings[0]
+        if mode == "tiebreak":  # only accept a re-read that settles a disagreement
+            if dates_disagree and _dates_agree(tess.date, rr.date):
+                r.date, r.date_flags = rr.date, list(rr.date.flags)
+            if words_disagree and rr.words and _same_words([w.text for w in tess.words], [w.text for w in rr.words]):
+                r.words, r.word_flags = rr.words, list(rr.word_flags)
+            continue
         if rr.date is not None:
             context = [f for f in r.date_flags if not (r.date and f in r.date.flags)] if primary else []
             r.date = rr.date

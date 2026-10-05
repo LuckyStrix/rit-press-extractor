@@ -169,8 +169,9 @@ def main(argv: list[str] | None = None) -> int:
 
     def add_ocr_options(sp):
         g = sp.add_argument_group("OCR options")
-        g.add_argument("--reread", action="store_true",
-                       help="experimental: focused second read of each field (lowered results in testing)")
+        g.add_argument("--reread", choices=["all", "easyocr", "tiebreak"], default="off",
+                       help="experimental: crop and re-read each field; 'all' = both engines, 'easyocr' = "
+                            "EasyOCR always, 'tiebreak' = EasyOCR only where the engines disagree")
         g.add_argument("--clean", action="store_true",
                        help="deskew, remove uneven lighting and denoise each page before OCR")
         g.add_argument("--best-model", action="store_true", help="use Tesseract 'best' models (slower, more accurate)")

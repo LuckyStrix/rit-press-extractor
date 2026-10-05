@@ -63,13 +63,13 @@ def regions_from(lines: list[Line], reading: EngineReading) -> Regions:
     return Regions(date, rows)
 
 
-def _crop(page: Image.Image, region: Region, contrast: bool = True) -> Image.Image:
+def _crop(page: Image.Image, region: Region, contrast: bool = True, upscale_only: bool = False) -> Image.Image:
     x0, y0, x1, y1 = region.box
     h = region.text_h
     box = (max(0, int(x0 - 0.3 * h)), max(0, int(y0 - 0.3 * h)),
            min(page.width, int(x1 + 0.5 * h)), min(page.height, int(y1 + 0.3 * h)))
     crop = page.crop(box).convert("L")
-    scale = min(max(TARGET_WORD_H / h, 0.5), 4.0)
+    scale = min(max(TARGET_WORD_H / h, 1.0 if upscale_only else 0.5), 4.0)
     crop = crop.resize((max(1, int(crop.width * scale)), max(1, int(crop.height * scale))), Image.LANCZOS)
     arr = np.array(crop)
     if contrast:
@@ -106,7 +106,8 @@ def _read_tesseract(page, region, lang, best, multipass) -> tuple[Line, str | No
 
 
 def _read_easyocr(page, region, langs) -> Line:
-    crop = _crop(page, region)
+    # Full resolution (never shrink) and no contrast boost: EasyOCR does its own normalisation.
+    crop = _crop(page, region, contrast=False, upscale_only=True)
     return _one_line(ocr.easyocr_lines(crop, langs, beam=True), crop.height)
 
 
