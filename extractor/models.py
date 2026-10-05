@@ -70,3 +70,21 @@ def split_dashes(words: list[Word]) -> list[Word]:
             out.append(Word(p, w.conf, (int(cursor), y0, int(cursor + width), y1)))
             cursor += width
     return out
+
+
+def merge_rows(lines: list[Line]) -> list[Line]:
+    """Join line pieces that sit on the same row (Tesseract sometimes splits one typed line
+    into separate blocks), then order rows top to bottom."""
+    rows: list[Line] = []
+    for line in sorted(lines, key=lambda ln: (ln.box[1] + ln.box[3]) / 2):
+        y0, y1 = line.box[1], line.box[3]
+        for row in rows:
+            r0, r1 = row.box[1], row.box[3]
+            overlap = min(y1, r1) - max(y0, r0)
+            no_collision = all(w.box[2] <= line.box[0] or w.box[0] >= line.box[2] for w in row.words)
+            if overlap > 0.5 * min(y1 - y0, r1 - r0) and no_collision:
+                row.words = sorted(row.words + line.words, key=lambda w: w.box[0])
+                break
+        else:
+            rows.append(Line(list(line.words)))
+    return sorted(rows, key=lambda ln: ln.box[1])

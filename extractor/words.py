@@ -83,7 +83,8 @@ def clean_word(token: str) -> str:
     t = t.lstrip(_EDGE_LEAD).rstrip(_EDGE_TRAIL)
     if t.endswith("."):
         core = t.rstrip(".")
-        if not ("." in core or core.lower() in ABBREVIATIONS):
+        initial = len(core) == 1 and core.isalpha()  # "J." in "J. R. Smith"
+        if not ("." in core or core.lower() in ABBREVIATIONS or initial):
             t = core
     return t
 

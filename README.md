@@ -64,9 +64,20 @@ it would put the page on the public internet.
 
 ## How the fields are chosen
 
-* **Article start**: the body begins right after the dateline (`ROCHESTER, N.Y. —`).
-  Letterhead, "FOR IMMEDIATE RELEASE", contacts and the headline are skipped. If
-  no dateline is found, the first prose paragraph is used and the row is flagged.
+* **Article start**, checked in this order:
+  1. Right after a dateline (`ROCHESTER, N.Y. —`) or a caps run-in headline at
+     the start of a paragraph (`RIT RECEIVES GRANT -- J. R. Smith, ...`).
+  2. Otherwise, the first paragraph whose first line is **indented** relative to
+     the line below it, by about 3–15 typewriter characters. This is the usual
+     layout of 1960s releases. It's measured line to line, so tilted photos
+     still work. The paragraph has to read as prose and its first line has to
+     run to the right margin, which rules out letterheads, contact blocks, and
+     centered titles.
+  3. Otherwise, the first flush paragraph after a large blank space (flagged).
+  4. Otherwise, the first prose-like line (flagged).
+
+  Line pieces that Tesseract splits apart on the same row are rejoined first,
+  and specks far taller than the text are ignored.
 * **Language**: pages are read as English. A page switches to another language
   only when that language clearly dominates the text. A weak hint of another
   language keeps English and flags the row.
@@ -87,7 +98,9 @@ No OCR is perfect on phone photos. Instead of guessing, each page is read by
 **two independent OCR engines**, Tesseract (LSTM) and EasyOCR (CRNN). A field is
 left unflagged only when **all** of these hold:
 
-1. Both engines read the field **character for character the same**. For dates,
+1. Both engines read the field **character for character the same**. The only
+   difference allowed is a period: EasyOCR often drops it after initials (`J`
+   vs `J.`), so the period rests on Tesseract's confidence alone. For dates,
    both must also parse to the same calendar date.
 2. Every Tesseract word confidence is ≥ 90. EasyOCR scores short words badly even
    when it reads them right, so its floor is lower (30) and only catches reads it
@@ -120,6 +133,16 @@ sample of unflagged rows too, especially early on.
   full copies of the releases, so keep them only as long as your project needs
   and handle them under your library's digitization policy. This is not legal
   advice; check with RIT's copyright or library staff if in doubt.
+
+## Diagnosing a bad result
+
+```bash
+.venv/bin/python -m extractor debug data/captures/0006.jpg      # letters masked: safe to share
+.venv/bin/python -m extractor debug --unmasked data/captures/0006.jpg
+```
+
+This shows every OCR line with its position, spacing, and confidence, and marks
+where the tool decided the body starts.
 
 ## Tests
 

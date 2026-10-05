@@ -125,7 +125,9 @@ def reconcile_words(readings: list[EngineReading]) -> FieldResult:
         if r is primary:
             continue
         other = " ".join(w.text for w in r.words)
-        if other != value:
+        # EasyOCR often drops a period ("J" for "J."); letters must still match exactly,
+        # and the period rests on Tesseract's own confidence check.
+        if other.replace(".", "") != value.replace(".", ""):
             reasons.append(f"engines disagree on first words: {primary.engine} '{value}' vs {r.engine} '{other}'")
             agree = False
     for r in readings:

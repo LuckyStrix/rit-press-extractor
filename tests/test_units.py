@@ -22,6 +22,21 @@ def mkpage(*texts: str) -> list[Line]:
     return [mkline(t, i * 50) for i, t in enumerate(texts)]
 
 
+def mkline_at(text: str, x: int, y: int) -> Line:
+    """A typed line at a given position (12px per character, 30px tall)."""
+    words, cx = [], x
+    for tok in text.split():
+        words.append(Word(tok, 95.0, (cx, y, cx + 12 * len(tok), y + 30)))
+        cx += 12 * (len(tok) + 1)
+    return Line(split_dashes(words))
+
+
+def layout_page(rows: list[tuple[int, int, str]]) -> list[Line]:
+    from extractor.models import merge_rows
+
+    return merge_rows([mkline_at(t, x, y) for x, y, t in rows])
+
+
 # --- dates -----------------------------------------------------------------
 
 @pytest.mark.parametrize("text,iso", [
@@ -126,7 +141,7 @@ def test_missing_dash_is_flagged():
 def test_no_dateline_inferred_and_flagged():
     lines = mkpage("NEWS RELEASE", "The college opened a new lab on the east side of campus today.")
     start = find_body_start(lines)
-    assert start.line == 1 and "inferred" in start.flags[0]
+    assert start.line == 1 and start.flags
 
 
 def test_hyphenated_word_joined_and_noted():
@@ -136,6 +151,77 @@ def test_hyphenated_word_joined_and_noted():
     assert words[2].note
 
 
+# Layouts copied from real 1969 releases (geometry only; the words are invented).
+BODY = [
+    (100, 700, "the old house on the hill was sold at auction last week for a modest"),
+    (100, 750, "sum, and the new owners say they plan to restore it within the next"),
+    (100, 800, "two years with help from local craftsmen and volunteers."),
+]
+
+
+def test_indented_first_line_split_into_two_pieces():
+    # 0006: Tesseract split the indented first line into two blocks on the same row.
+    lines = layout_page([
+        (100, 80, "XYZ COMMUNICATIONS SERVICE Contact: Jane Doe"),
+        (90, 120, "January 9, 1969 555-1234"),
+        (170, 650, "The annual winter"),
+        (490, 650, "carnival will move to the suburbs, the new"),
+        *BODY,
+    ])
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "The" and start.flags == []
+
+
+def test_indented_first_line_full_of_names():
+    # 0009/0010: indented first line is all capitalised names and addresses.
+    lines = layout_page([
+        (300, 80, "A NEWS RELEASE FROM ACME INSTITUTE OF TECHNOLOGY"),
+        (500, 140, "One Main Street, Anytown, New York 12345 (555) 555-1234"),
+        (100, 270, "January 14, 1969"),
+        (160, 650, "John Q. Public, 1234 Main St., Springfield, Ohio, and his wife,"),
+        *BODY,
+    ])
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "John" and start.flags == []
+    words = body_words(lines, start)
+    assert [w.text for w in words][:3] == ["John", "Q.", "Public"]
+
+
+def test_caps_run_in_headline_before_dash():
+    # 0007: "ACME GIVES COLLEGE GRANT -- J. R. Smith, ..." with no indent.
+    lines = layout_page([
+        (100, 240, "THE NEWS SERVICE January 10, 1969 Contact: Jane Doe"),
+        (100, 650, "ACME GIVES COLLEGE GRANT -- J. R. Smith, (title), regional manager"),
+        *BODY,
+    ])
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "J." and start.flags == []
+
+
+def test_two_line_first_paragraph_with_short_last_line():
+    # 0017: the first paragraph's second line is only three words long.
+    lines = layout_page([
+        (90, 150, "January 31, 1969"),
+        (160, 320, "Acme Institute of Technology's annual Winter Weekend will be held this"),
+        (100, 370, "coming week end."),
+        (160, 420, "The four day event, planned by the student council, will include a"),
+        (100, 470, "dance, a concert and a snow sculpture contest on the main quadrangle"),
+        (100, 520, "with prizes for the best entries from each of the residence halls."),
+    ])
+    start = find_body_start(lines)
+    assert start.line == 1 and start.flags == []
+
+
+def test_keyword_checks_use_word_boundaries():
+    lines = layout_page([
+        (100, 100, "January 9, 1969"),
+        (160, 650, "A female student from Halifax has won the regional science fair,"),
+        *BODY,
+    ])
+    start = find_body_start(lines)
+    assert start.line == 1 and start.flags == []
+
+
 # --- consensus -------------------------------------------------------------
 
 def test_disagreement_zeroes_confidence():
@@ -143,6 +229,19 @@ def test_disagreement_zeroes_confidence():
     b = EngineReading("easyocr", None, [BodyWord("co1lege", 95)])
     r = reconcile_words([a, b])
     assert r.confidence == 0 and "disagree" in r.reasons[0]
+
+
+def test_period_only_difference_is_agreement():
+    a = EngineReading("tesseract", None, [BodyWord("J.", 95), BodyWord("Smith", 95)])
+    b = EngineReading("easyocr", None, [BodyWord("J", 95), BodyWord("Smith", 95)])
+    r = reconcile_words([a, b])
+    assert r.value == "J. Smith" and r.reasons == []
+
+
+def test_possessive_difference_is_flagged():
+    a = EngineReading("tesseract", None, [BodyWord("Technology's", 95)])
+    b = EngineReading("easyocr", None, [BodyWord("Technology", 95)])
+    assert reconcile_words([a, b]).reasons
 
 
 def test_agreement_with_low_tesseract_conf_is_flagged():

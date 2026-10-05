@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .models import Line, Word, split_dashes
+from .models import Line, Word, merge_rows, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
@@ -94,11 +94,15 @@ def tesseract_lines(img: Image.Image, lang: str) -> list[Line]:
         x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
         key = (int(row["block_num"]), int(row["par_num"]), int(row["line_num"]))
         lines.setdefault(key, Line()).words.append(Word(row["text"], float(row["conf"]), (x, y, x + w, y + h)))
-    out = []
-    for line in lines.values():  # dicts keep Tesseract's reading order
-        line.words = split_dashes(line.words)
-        out.append(line)
-    return out
+    # Drop specks and edge shadows far taller than text; they would glue rows together.
+    heights = sorted(w.box[3] - w.box[1] for ln in lines.values() for w in ln.words)
+    max_h = 2.5 * heights[len(heights) // 2] if heights else 0
+    kept = []
+    for line in lines.values():
+        line.words = split_dashes([w for w in line.words if w.box[3] - w.box[1] <= max_h])
+        if line.words:
+            kept.append(line)
+    return merge_rows(kept)
 
 
 @lru_cache(maxsize=4)
