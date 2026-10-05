@@ -161,16 +161,20 @@ print the wrong values. Keep the key in `data/` so it stays private.
 
 ## Optional OCR settings
 
-These are off by default and planned for evaluation against the answer key:
+These are off by default. Each was measured on 17 real 1969 releases against a
+hand-made answer key, and none beat the default:
 
-| flag | what it does | cost |
+| flag | what it does | result vs. default (words verified & right / words wrong / verified-but-wrong) |
 |---|---|---|
-| `--best-model` | Tesseract's float "best" models instead of the integer "fast" ones Debian ships. Run `setup --tess-best` once to download them (~15 MB for English). | slower full-page pass |
-| `--multipass` | reads each field with three differently cleaned Tesseract passes (Sauvola, Otsu, no contrast boost) and keeps the majority. Disagreement between passes is flagged. | about 2 more seconds per field |
-| `--reread` | crops the date and opening-word rows, scales and contrast-boosts them, and re-reads them in single-line mode. **In testing on 17 real 1969 releases this dropped verified fields from 23 to 9 of 34** (Tesseract was less confident on the crops, and a few crops read worse), so it needs tuning before use. | about 3 more seconds per page |
+| (default) | | **9 / 1 / 0** |
+| `--best-model` | Tesseract's float "best" models (download once with `setup --tess-best`) | 5 / 3 / 0: more misreads, and lower confidence on correct words |
+| `--clean` | deskew, remove uneven lighting, light denoise before OCR | 5 / 1 / 0: same accuracy, fewer words cleared the checks |
+| `--best-model --clean` | both | 4 / 1 / **1**: produced a verified-but-wrong word, **don't use** |
+| `--reread` | crop and re-read each field in single-line mode | dropped verified fields from 23 to 9 of 34 |
+| `--multipass` | three differently cleaned Tesseract passes per field, majority vote (only with `--reread`) | not yet measured |
 
-They work with both `process` and `serve`. Turn one on by default only if the
-answer key shows it helps.
+They work with both `process` and `serve`. Re-measure with `evaluate` before
+turning any of them on, for example after building answer keys for more folders.
 
 ## Diagnosing a bad result
 
