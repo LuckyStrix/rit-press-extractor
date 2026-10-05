@@ -25,7 +25,7 @@ class Options:
     clean: bool = False  # deskew + remove uneven lighting + light denoise before OCR
     # Engines that vote. Tesseract always leads (layout + value); "easyocr" and "doctr" read
     # the whole page, "trocr" re-reads just the date and opening rows.
-    engines: tuple[str, ...] = ("tesseract", "easyocr")
+    engines: tuple[str, ...] = ("tesseract", "easyocr", "doctr")
 
 
 @dataclass
@@ -93,7 +93,7 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
             reasons.append(f"EasyOCR model for {easy_langs} not installed (run: python -m extractor setup "
                            f"--langs {' '.join(easy_langs)}); single-engine result")
 
-    if "doctr" in opts.engines:
+    if "doctr" in opts.engines and ocr.doctr_available():
         readings.append(read_fields("doctr", ocr.doctr_lines(page_img), lang, readings[0].anchor))
     if "trocr" in opts.engines and readings[0].start is not None:
         rr = reread_trocr(page_img, regions_from(lines, readings[0]), lang)

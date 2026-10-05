@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         g.add_argument("--reread", choices=["off", "tiebreak", "easyocr", "all"], default="tiebreak",
                        help="crop and re-read fields: 'tiebreak' (default) = EasyOCR re-reads only where the "
                             "engines disagree; 'easyocr' = always; 'all' = both engines; 'off'")
-        g.add_argument("--engines", default="tesseract,easyocr",
+        g.add_argument("--engines", default="tesseract,easyocr,doctr",
                        help="voting engines, comma-separated: tesseract (always first), easyocr, doctr, trocr")
         g.add_argument("--clean", action="store_true",
                        help="deskew, remove uneven lighting and denoise each page before OCR")

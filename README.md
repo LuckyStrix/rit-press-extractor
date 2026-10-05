@@ -11,7 +11,7 @@ sudo apt install -y tesseract-ocr tesseract-ocr-all libheif-dev
 python3 -m venv .venv
 .venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m extractor setup          # downloads EasyOCR models (only step that uses the internet)
+.venv/bin/python -m extractor setup --doctr  # downloads EasyOCR + docTR models (only step that uses the internet)
 ```
 
 `setup` fetches English plus the shared Latin-script model, which covers French,
@@ -97,11 +97,15 @@ it would put the page on the public internet.
 ## What "verified" means
 
 No OCR is perfect on phone photos. Instead of guessing, each page is read by
-**two independent OCR engines**, Tesseract (LSTM) and EasyOCR (CRNN).
+**three independent OCR engines**: Tesseract (LSTM), EasyOCR (CRNN) and docTR
+(DB-ResNet50 + PARSeq). Tesseract finds the layout and supplies the value; the
+others vote. A field is accepted when Tesseract's reading is backed by **a strict
+majority of engines, at least two**. Two of three is enough, so one engine's
+punctuation slip doesn't send a correct answer to review.
 
 A field is left unflagged only when **all** of these hold:
 
-1. Both engines read the same words with **identical letters and digits**,
+1. A majority of engines (Tesseract plus at least one other) read the same words with **identical letters and digits**,
    capitals included. EasyOCR may *omit* punctuation that Tesseract read (it often
    drops commas and periods), but if it adds or changes a mark the row is flagged.
    Every printed mark therefore also has to pass Tesseract's confidence check.
@@ -166,7 +170,11 @@ re-read tie-breaker helped, so it's the only one on by default:
 
 | flag | what it does | result vs. default (words verified & right / words wrong / verified-but-wrong) |
 |---|---|---|
-| no options | | 9 / 1 / 0 |
+| no options (2 engines, before re-read) | | 9 / 1 / 0 |
+| `--engines tesseract,easyocr,doctr` (**default**) | docTR as a third voter, 2-of-3 majority | **12 / 1 / 0**, dates 14 verified (was 13) |
+| `--engines tesseract,easyocr` | the original two engines | 10 / 1 / 0 (with re-read tie-breaker) |
+| `--engines tesseract,doctr` | docTR replacing EasyOCR | 9 / 1 / 0 |
+| `--engines ...,trocr` | TrOCR-printed re-reads the date and opening rows | not usable: it answers in capitals (trained on receipts) and misread a test word |
 | `--best-model` | Tesseract's float "best" models (download once with `setup --tess-best`) | 5 / 3 / 0: more misreads, and lower confidence on correct words |
 | `--clean` | deskew, remove uneven lighting, light denoise before OCR | 5 / 1 / 0: same accuracy, fewer words cleared the checks |
 | `--best-model --clean` | both | 4 / 1 / **1**: produced a verified-but-wrong word, **don't use** |

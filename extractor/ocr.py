@@ -207,6 +207,22 @@ def _torch_device():
 
 
 @lru_cache(maxsize=1)
+def doctr_available() -> bool:
+    """True if python-doctr and its downloaded models are present. Otherwise warn once and
+    let the vote run without it (two engines) rather than fail."""
+    try:
+        import doctr  # noqa: F401
+    except ImportError:
+        print("note: python-doctr not installed; voting with two engines (pip install python-doctr)", flush=True)
+        return False
+    if not any(DOCTR_DIR.rglob("*.pt")):
+        print("note: docTR models not downloaded; voting with two engines (python -m extractor setup --doctr)",
+              flush=True)
+        return False
+    return True
+
+
+@lru_cache(maxsize=1)
 def _doctr_predictor():
     os.environ["DOCTR_CACHE_DIR"] = str(DOCTR_DIR)  # weights load from here; no download at run time
     from doctr.models import ocr_predictor
