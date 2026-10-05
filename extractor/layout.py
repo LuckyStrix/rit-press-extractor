@@ -115,7 +115,7 @@ def _is_prose_paragraph(para: list[Line], g: _Geometry) -> bool:
 
 
 def _looks_like_dateline_prefix(prefix: str) -> bool:
-    if not prefix or len(prefix) > 80 or HEADER_CUE.search(prefix) or NON_BODY.search(prefix):
+    if not prefix.split() or len(prefix) > 80 or HEADER_CUE.search(prefix) or NON_BODY.search(prefix):
         return False
     first = re.sub(r"[^\w]", "", prefix.split()[0])
     caps_city = len(first) >= 3 and first.isalpha() and first.isupper()

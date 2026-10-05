@@ -52,3 +52,38 @@ def normalize_size(img: Image.Image) -> Image.Image:
         return img
     factor = TARGET_WIDTH / img.width
     return img.resize((TARGET_WIDTH, int(img.height * factor)), Image.LANCZOS)
+
+
+def deskew(img: Image.Image, max_angle: float = 5.0) -> tuple[Image.Image, float]:
+    """Straighten small tilts: pick the angle whose horizontal ink profile is sharpest
+    (text rows line up). Returns (image, degrees rotated)."""
+    gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
+    scale = 1000 / gray.shape[1]
+    small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    ink = cv2.adaptiveThreshold(small, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 15)
+    h, w = ink.shape
+
+    def score(angle: float) -> float:
+        m = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        rows = cv2.warpAffine(ink, m, (w, h)).sum(axis=1, dtype=np.float64)
+        return float(np.var(rows))
+
+    coarse = max(np.arange(-max_angle, max_angle + 0.01, 0.25), key=score)
+    best = max(np.arange(coarse - 0.25, coarse + 0.26, 0.05), key=score)
+    if abs(best) < 0.1:
+        return img, 0.0
+    rgb = np.array(img)
+    m = cv2.getRotationMatrix2D((rgb.shape[1] / 2, rgb.shape[0] / 2), best, 1.0)
+    out = cv2.warpAffine(rgb, m, (rgb.shape[1], rgb.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return Image.fromarray(out), float(best)
+
+
+def clean_page(img: Image.Image) -> Image.Image:
+    """Remove uneven phone lighting (divide by the blurred paper background) and lightly
+    denoise. Returns a grayscale page as RGB, so both engines can take it."""
+    gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
+    small = cv2.resize(gray, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+    background = cv2.resize(cv2.medianBlur(small, 21), (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+    flat = cv2.divide(gray, np.maximum(background, 1), scale=255)
+    flat = cv2.fastNlMeansDenoising(flat, None, h=7, templateWindowSize=7, searchWindowSize=21)
+    return Image.fromarray(cv2.cvtColor(flat, cv2.COLOR_GRAY2RGB))

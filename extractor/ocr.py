@@ -98,7 +98,9 @@ def tesseract_lines(img: Image.Image, lang: str, psm: int = 3, threshold: int = 
     tsv = _run_tesseract(img, [
         *extra, "-l", lang, "--psm", str(psm), "--dpi", "300",
         "-c", f"thresholding_method={threshold}",
-        "tsv",
+        # Ask for TSV directly rather than via the "tsv" config file, which lives in the
+        # system tessdata folder and isn't found when --tessdata-dir points elsewhere.
+        "-c", "tessedit_create_tsv=1", "-c", "tessedit_create_txt=0",
     ])
     lines: dict[tuple[int, int, int], Line] = {}
     for row in csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE):

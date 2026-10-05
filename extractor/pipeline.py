@@ -8,7 +8,7 @@ from PIL import Image
 from . import ocr
 from .reread import regions_from, reread
 from .extract import read_fields, reconcile_date, reconcile_words
-from .preprocess import flatten_page, normalize_size
+from .preprocess import clean_page, deskew, flatten_page, normalize_size
 from .words import LANG_TO_TESS, detect_language
 
 LOW_RES_WIDTH = 1500
@@ -19,6 +19,7 @@ class Options:
     reread: bool = False  # second, focused read of the date and opening words (experimental)
     best_model: bool = False  # Tesseract "best" models (setup --tess-best)
     multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
+    clean: bool = False  # deskew + remove uneven lighting + light denoise before OCR
 
 
 @dataclass
@@ -47,7 +48,11 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         flat = flat.rotate(-rotate, expand=True)  # OSD reports clockwise degrees to fix
     if flat.width < LOW_RES_WIDTH:
         reasons.append(f"low-resolution page ({flat.width}px wide); a closer photo would be more reliable")
+    if opts.clean:
+        flat, _ = deskew(flat)
     page_img = normalize_size(flat)
+    if opts.clean:
+        page_img = clean_page(page_img)
 
     if script and script != "Latin" and script not in ocr.SCRIPT_TO_TESS:
         reasons.append(f"unsupported script '{script}'; read as Latin")

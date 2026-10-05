@@ -46,7 +46,7 @@ def cmd_setup(args) -> int:
 def _options(args):
     from .pipeline import Options
 
-    return Options(reread=args.reread, best_model=args.best_model, multipass=args.multipass)
+    return Options(reread=args.reread, best_model=args.best_model, multipass=args.multipass, clean=args.clean)
 
 
 def _init_worker(jobs: int) -> None:
@@ -71,7 +71,15 @@ def _process_file(path: Path, lang, opts) -> list:
         pages = list(load_pages(path))
     except Exception as exc:  # unreadable/corrupt file: record it so nothing goes missing
         return [failed_row(path.name, item, f"could not open file: {exc}")]
-    return [process_page(img, path.name, page_no, item, lang, opts) for page_no, img in pages]
+    rows = []
+    for page_no, img in pages:
+        try:
+            rows.append(process_page(img, path.name, page_no, item, lang, opts))
+        except Exception as exc:  # one bad page must not stop the batch; record it for review
+            row = failed_row(path.name, item, f"processing failed: {type(exc).__name__}: {exc}")
+            row.page = page_no
+            rows.append(row)
+    return rows
 
 
 def cmd_process(args) -> int:
@@ -163,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         g = sp.add_argument_group("OCR options")
         g.add_argument("--reread", action="store_true",
                        help="experimental: focused second read of each field (lowered results in testing)")
+        g.add_argument("--clean", action="store_true",
+                       help="deskew, remove uneven lighting and denoise each page before OCR")
         g.add_argument("--best-model", action="store_true", help="use Tesseract 'best' models (slower, more accurate)")
         g.add_argument("--multipass", action="store_true",
                        help="read each field with 3 differently cleaned Tesseract passes and take the majority")
