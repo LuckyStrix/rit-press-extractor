@@ -88,6 +88,12 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
             reasons.append(f"EasyOCR model for {easy_langs} not installed (run: python -m extractor setup "
                            f"--langs {' '.join(easy_langs)}); single-engine result")
 
+    # EasyOCR reads at Tesseract's chosen spot, which checks the reading but not the choice
+    # of spot, so sanity-check the choice itself.
+    layout_flag = _check_start(lines, readings[0].start)
+    if layout_flag:
+        readings[0].word_flags.append(layout_flag)
+
     if opts.reread != "off" and readings[0].start is not None:
         _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts)
 
@@ -108,6 +114,20 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         needs_review="YES" if reasons else "no",
         review_reasons=" | ".join(reasons),
     )
+
+
+def _check_start(t_lines, t_start) -> str | None:
+    """Flag if text above the chosen article start reads like article prose, i.e. the
+    layout may have picked a later paragraph. Letterheads, addresses, contacts and caps
+    headlines don't look like this."""
+    if t_start is None or t_start.dateline is not None:
+        return None
+    for line in t_lines[:t_start.line]:
+        toks = [w.text for w in line.words if any(c.isalpha() for c in w.text)]
+        lower = sum(1 for t in toks if t.lstrip("\"'(“‘")[:1].islower())
+        if len(toks) >= 6 and lower >= 0.5 * len(toks):
+            return "text above the chosen start reads like article text; check where the article starts"
+    return None
 
 
 def _dates_agree(a, b) -> bool:

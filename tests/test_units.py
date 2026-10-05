@@ -295,3 +295,17 @@ def test_netguard_blocks_outbound():
     with pytest.raises(netguard.NetworkBlocked):
         s.connect(("1.1.1.1", 80))
     s.close()
+
+
+def test_check_start_flags_skipped_prose():
+    from extractor.pipeline import _check_start
+
+    lines = layout_page([
+        (100, 100, "January 9, 1969"),
+        (160, 300, "the first paragraph was skipped by mistake and it is long enough"),
+        (100, 350, "to count as prose for this check, so it must be flagged now."),
+        *BODY,
+    ])
+    from extractor.layout import BodyStart
+    assert _check_start(lines, BodyStart(3, 0, None))  # chose the later paragraph
+    assert _check_start(lines, BodyStart(1, 0, None)) is None  # chose the first
