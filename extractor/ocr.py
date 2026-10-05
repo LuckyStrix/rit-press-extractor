@@ -5,6 +5,7 @@ import csv
 import io
 import re
 import subprocess
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from PIL import Image
 from .models import Line, Word, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+
+# Harmless PyTorch notices from EasyOCR on a CPU-only machine; they don't affect results.
+warnings.filterwarnings("ignore", message=r".*pin_memory.*no accelerator", category=UserWarning)
+warnings.filterwarnings("ignore", message=r".*quantize_per_tensor.*deprecated", category=UserWarning)
 
 # Tesseract script name (from OSD) -> Tesseract language model to use.
 SCRIPT_TO_TESS = {
