@@ -87,4 +87,22 @@ def merge_rows(lines: list[Line]) -> list[Line]:
                 break
         else:
             rows.append(Line(list(line.words)))
-    return sorted(rows, key=lambda ln: ln.box[1])
+    for row in rows:
+        row.words = trim_edge_noise(row.words)
+    return sorted((r for r in rows if r.words), key=lambda ln: ln.box[1])
+
+
+def trim_edge_noise(words: list[Word], max_conf: float = 50.0) -> list[Word]:
+    """Drop leading 'words' that are really specks at the photo's edge: low confidence and
+    separated from the rest of the line by a wide gap. Otherwise they make a line look like
+    it starts at the margin and hide the real paragraph indent."""
+    if len(words) < 2:
+        return words
+    heights = sorted(w.box[3] - w.box[1] for w in words)
+    gap_limit = 3 * heights[len(heights) // 2]
+    for i in range(1, min(len(words), 8)):
+        gap = words[i].box[0] - words[i - 1].box[2]
+        lead = words[:i]
+        if gap > gap_limit and sum(w.conf for w in lead) / len(lead) < max_conf:
+            return words[i:]
+    return words

@@ -335,3 +335,27 @@ def test_missing_reading_counts_against():
 def test_majority_without_tesseract_is_not_verified():
     r = reconcile_words(_readings("one tw0", "one two", "one two"))
     assert r.reasons and r.value == "one tw0"  # Tesseract anchors the value; outvoted -> review
+
+
+def test_edge_specks_do_not_hide_indent():
+    # 0008 on Windows: specks at the photo's left edge were merged onto continuation lines.
+    from extractor.models import merge_rows
+
+    def speck(x, y):
+        return Line([Word("xx", 5.0, (x, y, x + 20, y + 30))])
+
+    lines = merge_rows([
+        mkline_at("January 9, 1969", 100, 100),
+        mkline_at("Ambassador (R.I.T.) Johnson of Rochester's Kiwanis Club will speak", 160, 650),
+        speck(0, 700), mkline_at("at the luncheon and the members of the club are invited to it", 100, 700),
+        mkline_at("with their families, and the public is welcome to attend as well.", 100, 750),
+    ])
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "Ambassador" and start.flags == []
+
+
+def test_real_low_confidence_word_next_to_text_is_kept():
+    from extractor.models import trim_edge_noise
+
+    words = [Word("Smudged", 20.0, (100, 0, 180, 30)), Word("word", 95.0, (192, 0, 240, 30))]
+    assert len(trim_edge_noise(words)) == 2  # no wide gap: it's part of the line
