@@ -1,5 +1,4 @@
-# Install torch CPU build first to avoid a multi-GB CUDA download:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# PyTorch is installed separately (GPU or CPU build): see docs/setup-linux.md or docs/setup-windows.md
 easyocr==1.7.2
 pillow>=12
 pillow-heif>=1.8

@@ -70,6 +70,9 @@ class Viewer:
         if not self.enabled:
             return
         self.close()
+        if sys.platform == "win32":
+            os.startfile(photo)  # Windows' default viewer; it can't be closed from here
+            return
         cmd = self.cmd + [str(photo)] if self.cmd else ["open" if sys.platform == "darwin" else "xdg-open", str(photo)]
         try:
             self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

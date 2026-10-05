@@ -148,6 +148,9 @@ def cmd_debug(args) -> int:
 
 
 def cmd_evaluate(args) -> int:
+    from . import netguard
+
+    netguard.enable()
     from .evaluate import evaluate, make_template
 
     if args.template:
@@ -156,6 +159,9 @@ def cmd_evaluate(args) -> int:
 
 
 def cmd_truth(args) -> int:
+    from . import netguard
+
+    netguard.enable()
     from .truth import run
 
     ensure_private_dir(DATA_DIR)

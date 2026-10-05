@@ -1,204 +1,74 @@
 # RIT Press Release Extractor
 
-Reads photos or scans of RIT press releases and writes a CSV with each release's
-**release date** and the **first five words of the article**. Everything runs on
-this machine. Any field that isn't fully verified is flagged for a person to check.
+Turns photos and scans of archival RIT press releases into a spreadsheet (CSV)
+with each release's **release date** and the **first five words of the article**.
 
-## Setup (once)
+- **Runs entirely on your own computer.** No photos, text or results are sent anywhere.
+- **Reads every page with three OCR engines and cross-checks them.** A field is only
+  marked verified when the engines agree. Anything uncertain is flagged for a
+  person to check, with the reason spelled out.
+- **Phone capture page (optional):** photograph releases with your phone's
+  camera, and they're processed on your computer as you go.
 
-```bash
-sudo apt install -y tesseract-ocr tesseract-ocr-all libheif-dev
-python3 -m venv .venv
-.venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m extractor setup --doctr  # downloads EasyOCR + docTR models (only step that uses the internet)
+```
+ photos / PDFs / phone          three OCR engines vote           spreadsheet
+┌──────────────────┐        ┌─────────────────────────┐     ┌────────────────────────────────┐
+│ 0001.jpg  0002…  │  ───▶  │ Tesseract  EasyOCR docTR│ ──▶ │ release_date  first_five_words │
+└──────────────────┘        └─────────────────────────┘     │ needs_review  review_reasons   │
+                                                            └────────────────────────────────┘
 ```
 
-`setup` fetches English plus the shared Latin-script model, which covers French,
-German, Spanish, Italian, Portuguese, Dutch, and others. For other scripts, add
-them with `setup --langs ru ja ...`.
+## Get started
 
-## Use
+1. **Install** with the guide for your computer. Each one covers both GPU
+   (NVIDIA graphics card, faster) and CPU-only setups:
+   - [Linux setup](docs/setup-linux.md)
+   - [Windows setup](docs/setup-windows.md)
+2. **Use it** with [the usage guide](docs/using.md): processing a folder,
+   capturing with a phone, reviewing flagged rows, and checking accuracy.
+3. **Read [Privacy and copyright](docs/privacy-and-copyright.md)** before working
+   with real material. It explains what the tool keeps, what it never sends
+   anywhere, and how the work relates to copyright law and personal information.
 
-**From files** (JPG, PNG, TIFF, HEIC, WEBP, PDF; folders are scanned recursively):
-
-```bash
-.venv/bin/python -m extractor process path/to/photos/ -o data/results.csv
-```
-
-Each page of a PDF is treated as its own release. If a filename starts with
-digits (`0042.jpg`), those digits go in `item_number`.
-
-**From a phone** (camera page, over Tailscale):
+Once installed, everyday use is one command:
 
 ```bash
-.venv/bin/python -m extractor serve [-o data/batch1.csv]   # listens on 127.0.0.1:8765 only
-tailscale serve --bg --https=8443 8765        # HTTPS, reachable only inside your tailnet
+python -m extractor process path/to/photos -o data/results.csv
 ```
 
-Open `https://<your-computer>.<your-tailnet>.ts.net:8443` on the phone (port 8443 keeps
-your existing `tailscale serve` on 443 untouched). Line the page up in
-the preview and tap the shutter. The number is the item number. It goes up by 1
-after every shot, and you can tap it to type a different one. Shots queue on the
-phone and retry until the laptop has them, so none get lost if the connection
-drops. Each photo is saved as `data/captures/<number>.jpg` and processed in the
-background, and its row is added to the output CSV (`-o`, default `data/results.csv`). A reused number never
-overwrites an earlier photo (it saves `0012-2.jpg`).
+Then open `data/results.csv` in a spreadsheet and check the rows where
+`needs_review` is `YES`. The `review_reasons` column says what to look at.
 
-Stop sharing with `tailscale serve --https=8443 off`. **Never use `tailscale funnel`**:
-it would put the page on the public internet.
+## How accurate is it?
 
-## Output columns
+On a hand-checked set of 17 real 1969 releases photographed with a phone:
 
-| column | meaning |
-|---|---|
-| `file`, `page`, `item_number` | where the row came from |
-| `release_date` | ISO `YYYY-MM-DD` (or `YYYY-MM` if the page gives no day) |
-| `release_date_as_printed` | exactly as it appears on the page |
-| `first_five_words` | first five words of the body (see rules below) |
-| `date_verified`, `words_verified` | `YES` only if that field passed every check below |
-| `date_confidence`, `words_confidence` | Tesseract's lowest word confidence (0–100) when both engines agree; `0` if they disagree. Useful for sorting the review queue. It rarely reaches 100 even on correct reads, so use the verified columns to decide what needs checking. |
-| `language` | detected body language |
-| `needs_review` | `YES` if either field is unverified |
-| `review_reasons` | every reason the row was flagged, in plain words |
-
-## How the fields are chosen
-
-* **Article start**, checked in this order:
-  1. Right after a dateline (`ROCHESTER, N.Y. —`).
-  2. Otherwise, the first paragraph whose first line is **indented** relative to
-     the line below it, by about 3–15 typewriter characters. This is the usual
-     layout of 1960s releases. It's measured line to line, so tilted photos
-     still work. The paragraph has to read as prose and its first line has to
-     run to the right margin, which rules out letterheads, contact blocks, and
-     centered titles.
-  3. Otherwise, the first flush paragraph after a large blank space (flagged).
-  4. Otherwise, the first prose-like line (flagged).
-
-  Line pieces that Tesseract splits apart on the same row are rejoined first,
-  and specks far taller than the text are ignored.
-* **Language**: pages are read as English. A page switches to another language
-  only when that language clearly dominates the text. A weak hint of another
-  language keeps English and flags the row.
-* **First five words**: kept **exactly as printed**, punctuation included
-  (`Smith,` `(R.I.T.)` `"Winter`), counting whitespace-separated words. A lone
-  dash isn't a word, and a dash typed with no spaces stays attached
-  (`GRANT---J.`). All leading articles are skipped in the body's language,
-  including stacked and elided ones (`The`, `Los`, `L'université`), and the next
-  word is capitalized: "A special showing" becomes `Special showing`. A caps
-  run-in headline (`ACME GIVES COLLEGE GRANT---J. R.`) counts as part of the text.
-  A word split across a line break (`uni-`/`versity`) is joined and flagged.
-* **Release date**: only the header and dateline are searched, never the body.
-  A date next to a release cue ("For release:", "Embargoed until") wins. Otherwise
-  the dateline's date is used, otherwise the header's date. Other header dates,
-  numeric dates (`5/3/87` is read as US month/day), two-digit years, and dates
-  without a day are all flagged.
-
-## What "verified" means
-
-No OCR is perfect on phone photos. Instead of guessing, each page is read by
-**three independent OCR engines**: Tesseract (LSTM), EasyOCR (CRNN) and docTR
-(DB-ResNet50 + PARSeq). Tesseract finds the layout and supplies the value; the
-others vote. A field is accepted when Tesseract's reading is backed by **a strict
-majority of engines, at least two**. Two of three is enough, so one engine's
-punctuation slip doesn't send a correct answer to review.
-
-A field is left unflagged only when **all** of these hold:
-
-1. A majority of engines (Tesseract plus at least one other) read the same words with **identical letters and digits**,
-   capitals included. EasyOCR may *omit* punctuation that Tesseract read (it often
-   drops commas and periods), but if it adds or changes a mark the row is flagged.
-   Every printed mark therefore also has to pass Tesseract's confidence check.
-   For dates, both must also parse to the same calendar date.
-2. Every Tesseract word confidence is ≥ 90. EasyOCR scores short words badly even
-   when it reads them right, so its floor is lower (30) and only catches reads it
-   was itself unsure of. Agreement is the main check.
-3. No layout guess was needed, the date isn't ambiguous, and there's no doubt
-   about the language.
-
-Anything else is `needs_review=YES`, and the reason says exactly what to check.
-Thresholds are in `extractor/extract.py` (`MIN_CONF`). Two engines agreeing on
-the same wrong reading is unlikely, but it isn't impossible, so spot-check a
-sample of unflagged rows too, especially early on.
-
-## Privacy and copyright
-
-* **No data leaves the machine.** `process` and `serve` install a socket-level
-  block on outbound connections and DNS lookups before anything runs. OCR models
-  load from `models/` with downloads disabled.
-* Images go to Tesseract over a pipe, with no temp files. No OCR text is cached
-  or logged. The only outputs are the CSV fields above and, for phone captures,
-  the photo.
-* `data/` and everything the tool writes are owner-only (`0700` / `0600`), and
-  git ignores them.
-* The capture server listens on `127.0.0.1` only. Tailscale's encrypted tailnet is
-  the only way in. Set `PRX_ALLOWED_USERS=you@example.com` to also require a
-  specific Tailscale login. Uploads need a custom header, so other websites
-  open in your browser can't post to it. Note that Tailscale HTTPS certificates
-  put the machine's hostname (not any content) in public certificate logs.
-* The tool keeps only a date and five words per release: minimal factual
-  metadata for cataloging, not reproduction of the text. Captured photos are
-  full copies of the releases, so keep them only as long as your project needs
-  and handle them under your library's digitization policy. This is not legal
-  advice; check with RIT's copyright or library staff if in doubt.
-
-## Measuring accuracy (answer key)
-
-The tool can only flag what it doubts. To know how often it's actually right,
-build an answer key from the paper originals:
-
-```bash
-.venv/bin/python -m extractor truth data/captures                  # type the answers -> data/truth.csv
-.venv/bin/python -m extractor evaluate data/results.csv data/truth.csv
-```
-
-`truth` opens each photo in your image viewer and asks for the release date
-(`1969-01-09` or `January 9, 1969`) and the first five words, typed exactly as
-on the paper with leading articles left out. Enter leaves a field blank, `b` goes
-back, `s` skips, and `q` saves and quits. Running it again picks up where you
-stopped. It never shows the tool's answers, so they can't bias yours.
-
-The report gives counts per field: verified and right, **verified but wrong**,
-flagged and wrong (caught), flagged but right (needless review), and no answer.
-"Verified but wrong" must be 0 before you trust unflagged rows. Add `--show` to
-print the wrong values. Keep the key in `data/` so it stays private.
-
-## Optional OCR settings
-
-Each was measured on 17 real 1969 releases against a hand-made answer key. Only the
-re-read tie-breaker helped, so it's the only one on by default:
-
-| flag | what it does | result vs. default (words verified & right / words wrong / verified-but-wrong) |
+| | release date | first five words |
 |---|---|---|
-| no options (2 engines, before re-read) | | 9 / 1 / 0 |
-| `--engines tesseract,easyocr,doctr` (**default**) | docTR as a third voter, 2-of-3 majority | **12 / 1 / 0**, dates 14 verified (was 13) |
-| `--engines tesseract,easyocr` | the original two engines | 10 / 1 / 0 (with re-read tie-breaker) |
-| `--engines tesseract,doctr` | docTR replacing EasyOCR | 9 / 1 / 0 |
-| `--engines ...,trocr` | TrOCR-printed re-reads the date and opening rows | not usable: it answers in capitals (trained on receipts) and misread a test word |
-| `--best-model` | Tesseract's float "best" models (download once with `setup --tess-best`) | 5 / 3 / 0: more misreads, and lower confidence on correct words |
-| `--clean` | deskew, remove uneven lighting, light denoise before OCR | 5 / 1 / 0: same accuracy, fewer words cleared the checks |
-| `--best-model --clean` | both | 4 / 1 / **1**: produced a verified-but-wrong word, **don't use** |
-| `--reread tiebreak` (**default**) | when the engines disagree on a field, EasyOCR re-reads just that row at full resolution. The re-read is kept only if it then agrees with Tesseract, so it can never undo an agreement. | **10 / 1 / 0** (+1 verified) |
-| `--reread easyocr` | EasyOCR always re-reads the rows | 9 / 1 / 0: fixed one row, lost another |
-| `--reread all` | both engines re-read the rows | dropped verified fields from 23 to 9 of 34 |
-| `--reread off` | no re-read | the 9 / 1 / 0 baseline above |
-| `--multipass` | three differently cleaned Tesseract passes per field, majority vote (only with `--reread`) | not yet measured |
+| verified and correct | 14 | 12 |
+| **verified but wrong** | **0** | **0** |
+| flagged for review | 3 | 5 |
 
-They work with both `process` and `serve`. Re-measure with `evaluate` before
-turning any of them on, for example after building answer keys for more folders.
+Every wrong answer was flagged. The flagged rows are what a person checks. See
+[How accuracy is measured](docs/accuracy.md) for how fields are chosen, what
+"verified" means, and how to measure accuracy on your own material.
 
-## Diagnosing a bad result
+## More documentation
 
-```bash
-.venv/bin/python -m extractor debug data/captures/0006.jpg      # letters masked: safe to share
-.venv/bin/python -m extractor debug --unmasked data/captures/0006.jpg
-```
+| | |
+|---|---|
+| [Linux setup](docs/setup-linux.md) | Debian/Ubuntu, GPU or CPU |
+| [Windows setup](docs/setup-windows.md) | Windows 10/11, GPU or CPU |
+| [Using the tool](docs/using.md) | everyday workflow, phone capture, review, troubleshooting |
+| [How accuracy is measured](docs/accuracy.md) | how fields are chosen, verification rules, answer keys, measured results |
+| [Privacy and copyright](docs/privacy-and-copyright.md) | data handling, personal information, copyright, software licenses |
 
-This shows every OCR line with its position, spacing, and confidence, and marks
-where the tool decided the body starts.
-
-## Tests
+## Development
 
 ```bash
-.venv/bin/python -m pytest -q              # unit tests + end-to-end on generated pages (~3 min)
+python -m pytest -q          # unit tests + end-to-end tests on generated pages (a few minutes)
 ```
+
+The code is in `extractor/`. `pipeline.py` is the per-page flow, `layout.py`
+finds the article, `extract.py` holds the voting rules, and `cli.py` defines the
+commands.

@@ -188,7 +188,7 @@ def test_indented_first_line_full_of_names():
 
 
 def test_caps_run_in_headline_is_part_of_the_text():
-    # 0007: "ACME GIVES COLLEGE GRANT---J. R. Smith, ..." counts from the headline.
+    # A run-in caps headline ("ACME GIVES COLLEGE GRANT---J. R. Smith, ...") counts as text.
     lines = layout_page([
         (100, 240, "THE NEWS SERVICE January 10, 1969 Contact: Jane Doe"),
         (100, 650, "ACME GIVES COLLEGE GRANT---J. R. Smith, (title), regional manager"),
