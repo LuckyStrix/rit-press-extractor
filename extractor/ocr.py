@@ -191,3 +191,68 @@ def _group_segments(segments) -> list[Line]:
             lines.append(Line(split_dashes(words)))
     lines.sort(key=lambda ln: ln.box[1])
     return lines
+
+
+# --- Optional engines (python-doctr, transformers); models fetched once by `setup` -------
+
+DOCTR_DIR = MODELS_DIR / "doctr"
+TROCR_DIR = MODELS_DIR / "trocr-base-printed"
+TROCR_REPO = "microsoft/trocr-base-printed"
+
+
+def _torch_device():
+    import torch
+
+    return "cuda" if torch.cuda.is_available() and os.environ.get("PRX_GPU", "1") != "0" else "cpu"
+
+
+@lru_cache(maxsize=1)
+def _doctr_predictor():
+    os.environ["DOCTR_CACHE_DIR"] = str(DOCTR_DIR)  # weights load from here; no download at run time
+    from doctr.models import ocr_predictor
+
+    predictor = ocr_predictor(det_arch="db_resnet50", reco_arch="parseq", pretrained=True,
+                              assume_straight_pages=True)
+    return predictor.cuda() if _torch_device() == "cuda" else predictor
+
+
+def doctr_lines(img: Image.Image) -> list[Line]:
+    arr = np.array(img.convert("RGB"))
+    page = _doctr_predictor()([arr]).pages[0]
+    h, w = arr.shape[:2]
+    lines = []
+    for block in page.blocks:
+        for line in block.lines:
+            words = [Word(wd.value, float(wd.confidence) * 100,
+                          (int(wd.geometry[0][0] * w), int(wd.geometry[0][1] * h),
+                           int(wd.geometry[1][0] * w), int(wd.geometry[1][1] * h)))
+                     for wd in line.words if wd.value.strip()]
+            if words:
+                lines.append(Line(split_dashes(words)))
+    return merge_rows(lines)
+
+
+@lru_cache(maxsize=1)
+def _trocr():
+    os.environ["HF_HUB_OFFLINE"] = "1"  # never contact the Hub at run time
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
+    if not TROCR_DIR.exists():
+        raise FileNotFoundError(f"TrOCR model not installed in {TROCR_DIR} (run: python -m extractor setup --trocr)")
+    processor = TrOCRProcessor.from_pretrained(TROCR_DIR, local_files_only=True)
+    model = VisionEncoderDecoderModel.from_pretrained(TROCR_DIR, local_files_only=True).eval().to(_torch_device())
+    return processor, model
+
+
+def trocr_line(img: Image.Image) -> tuple[str, float]:
+    """Read one text line. Returns (text, confidence 0-100 from the beam's sequence probability)."""
+    import torch
+
+    processor, model = _trocr()
+    pixels = processor(images=img.convert("RGB"), return_tensors="pt").pixel_values.to(model.device)
+    with torch.no_grad():
+        out = model.generate(pixels, max_new_tokens=64, num_beams=4,
+                             output_scores=True, return_dict_in_generate=True)
+    text = processor.batch_decode(out.sequences, skip_special_tokens=True)[0].strip()
+    scores = getattr(out, "sequences_scores", None)
+    return text, float(torch.exp(scores[0])) * 100 if scores is not None else 100.0

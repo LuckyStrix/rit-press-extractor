@@ -6,3 +6,6 @@ pillow-heif>=1.8
 pymupdf>=1.28
 opencv-python-headless>=4.11
 pytest>=9
+# Optional extra engines (--engines ...,doctr / ...,trocr); models via setup --doctr / --trocr
+python-doctr>=1.1
+transformers>=4.40

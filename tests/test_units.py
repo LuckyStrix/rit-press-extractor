@@ -309,3 +309,29 @@ def test_check_start_flags_skipped_prose():
     from extractor.layout import BodyStart
     assert _check_start(lines, BodyStart(3, 0, None))  # chose the later paragraph
     assert _check_start(lines, BodyStart(1, 0, None)) is None  # chose the first
+
+
+def _readings(*texts):
+    names = ["tesseract", "easyocr", "doctr", "trocr"]
+    return [EngineReading(names[i], None, [BodyWord(x, 95) for x in t.split()] if t else [])
+            for i, t in enumerate(texts)]
+
+
+def test_two_of_three_majority_verifies():
+    r = reconcile_words(_readings("Institute of Technology's new", "Institute of Technology'9 new",
+                                  "Institute of Technology's new"))
+    assert r.reasons == [] and r.value == "Institute of Technology's new"
+
+
+def test_tie_is_flagged():
+    r = reconcile_words(_readings("one two", "one tw0", "one two", "0ne two"))
+    assert r.reasons  # 2 for vs 2 against
+
+
+def test_missing_reading_counts_against():
+    assert reconcile_words(_readings("one two", "one tw0", "")).reasons
+
+
+def test_majority_without_tesseract_is_not_verified():
+    r = reconcile_words(_readings("one tw0", "one two", "one two"))
+    assert r.reasons and r.value == "one tw0"  # Tesseract anchors the value; outvoted -> review

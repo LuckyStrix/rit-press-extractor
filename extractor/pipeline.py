@@ -6,8 +6,8 @@ from dataclasses import asdict, dataclass
 from PIL import Image
 
 from . import ocr
-from .reread import regions_from, reread
-from .extract import _alnum, _same_words, read_fields, reconcile_date, reconcile_words
+from .reread import regions_from, reread, reread_trocr
+from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
 from .words import LANG_TO_TESS, detect_language
 
@@ -23,6 +23,9 @@ class Options:
     best_model: bool = False  # Tesseract "best" models (setup --tess-best)
     multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
     clean: bool = False  # deskew + remove uneven lighting + light denoise before OCR
+    # Engines that vote. Tesseract always leads (layout + value); "easyocr" and "doctr" read
+    # the whole page, "trocr" re-reads just the date and opening rows.
+    engines: tuple[str, ...] = ("tesseract", "easyocr")
 
 
 @dataclass
@@ -79,7 +82,9 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
 
     readings = [read_fields("tesseract", lines, lang)]
     easy_langs = ocr.easy_langs_for(tess_lang)
-    if easy_langs is None:
+    if "easyocr" not in opts.engines:
+        pass
+    elif easy_langs is None:
         reasons.append(f"second OCR engine cannot read '{tess_lang}'; single-engine result")
     else:
         try:
@@ -87,6 +92,13 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         except FileNotFoundError:
             reasons.append(f"EasyOCR model for {easy_langs} not installed (run: python -m extractor setup "
                            f"--langs {' '.join(easy_langs)}); single-engine result")
+
+    if "doctr" in opts.engines:
+        readings.append(read_fields("doctr", ocr.doctr_lines(page_img), lang, readings[0].anchor))
+    if "trocr" in opts.engines and readings[0].start is not None:
+        rr = reread_trocr(page_img, regions_from(lines, readings[0]), lang)
+        readings.append(EngineReading("trocr", rr.date, rr.words or [],
+                                      list(rr.date.flags) if rr.date else [], rr.word_flags))
 
     # EasyOCR reads at Tesseract's chosen spot, which checks the reading but not the choice
     # of spot, so sanity-check the choice itself.
@@ -140,10 +152,11 @@ def _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts: 
     mode = opts.reread
     tess = readings[0]
     words_disagree = dates_disagree = True
+    easy = next((r for r in readings if r.engine == "easyocr"), None)
+    if easy is None:
+        return
     if mode == "tiebreak":
-        if len(readings) < 2:
-            return
-        other = readings[1]
+        other = easy
         words_disagree = not _same_words([w.text for w in tess.words], [w.text for w in other.words])
         dates_disagree = tess.date is not None and not _dates_agree(tess.date, other.date)
         if not (words_disagree or dates_disagree):
@@ -151,7 +164,7 @@ def _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts: 
     regions = regions_from(lines, tess)
     for r in readings:
         primary = r is tess
-        if primary and mode != "all":
+        if (primary and mode != "all") or r.engine not in ("tesseract", "easyocr"):
             continue
         rr = reread(r.engine, page_img, regions, lang, tess_lang, easy_langs, opts.best_model, opts.multipass)
         if mode == "tiebreak":  # only accept a re-read that settles a disagreement

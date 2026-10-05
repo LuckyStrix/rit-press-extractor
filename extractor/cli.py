@@ -29,6 +29,22 @@ def cmd_setup(args) -> int:
     for langs in groups:
         print(f"Fetching EasyOCR models for {langs} ...")
         easyocr.Reader(langs, gpu=False, model_storage_directory=str(MODELS_DIR), verbose=False)
+    if args.doctr:
+        os.environ["DOCTR_CACHE_DIR"] = str(MODELS_DIR / "doctr")
+        from doctr.models import ocr_predictor
+
+        print("Fetching docTR models (db_resnet50 + parseq) ...")
+        ocr_predictor(det_arch="db_resnet50", reco_arch="parseq", pretrained=True)
+    if args.trocr:
+        from huggingface_hub import snapshot_download
+
+        from .ocr import TROCR_DIR, TROCR_REPO
+
+        print(f"Fetching TrOCR model {TROCR_REPO} ...")
+        os.environ["HF_HUB_DISABLE_XET"] = "1"  # the xet backend can fail on its own cache permissions
+        snapshot_download(TROCR_REPO, local_dir=str(TROCR_DIR), allow_patterns=["*.json", "*.txt", "model.safetensors"])
+        if not (TROCR_DIR / "model.safetensors").exists():
+            raise SystemExit("TrOCR weights did not download; re-run setup --trocr")
     if args.tess_best:
         import urllib.request
 
@@ -46,7 +62,8 @@ def cmd_setup(args) -> int:
 def _options(args):
     from .pipeline import Options
 
-    return Options(reread=args.reread, best_model=args.best_model, multipass=args.multipass, clean=args.clean)
+    return Options(reread=args.reread, best_model=args.best_model, multipass=args.multipass, clean=args.clean,
+                   engines=tuple(e.strip() for e in args.engines.split(",")))
 
 
 def _init_worker(jobs: int) -> None:
@@ -163,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("setup", help="one-time download of EasyOCR models (needs internet)")
     s.add_argument("--langs", nargs="+", default=["fr"],
                    help="EasyOCR language codes to fetch; 'fr' pulls the shared Latin-script model")
+    s.add_argument("--doctr", action="store_true", help="also fetch docTR models for --engines ...,doctr")
+    s.add_argument("--trocr", action="store_true", help="also fetch the TrOCR model for --engines ...,trocr")
     s.add_argument("--tess-best", nargs="*", metavar="LANG",
                    help="also fetch Tesseract 'best' models (default: eng) for --best-model")
     s.set_defaults(func=cmd_setup)
@@ -172,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         g.add_argument("--reread", choices=["off", "tiebreak", "easyocr", "all"], default="tiebreak",
                        help="crop and re-read fields: 'tiebreak' (default) = EasyOCR re-reads only where the "
                             "engines disagree; 'easyocr' = always; 'all' = both engines; 'off'")
+        g.add_argument("--engines", default="tesseract,easyocr",
+                       help="voting engines, comma-separated: tesseract (always first), easyocr, doctr, trocr")
         g.add_argument("--clean", action="store_true",
                        help="deskew, remove uneven lighting and denoise each page before OCR")
         g.add_argument("--best-model", action="store_true", help="use Tesseract 'best' models (slower, more accurate)")

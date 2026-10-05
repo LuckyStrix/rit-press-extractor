@@ -13,7 +13,7 @@ N_WORDS = 5
 # A field is only "verified" if the engines agree character-for-character AND every word
 # clears these. Agreement is the main gate: EasyOCR scores short words like "of" low
 # even when read correctly, so its floor only catches reads it was itself unsure of.
-MIN_CONF = {"tesseract": 90.0, "easyocr": 30.0}
+MIN_CONF = {"tesseract": 90.0, "easyocr": 30.0, "doctr": 0.0, "trocr": 0.0}
 
 
 @dataclass
@@ -101,28 +101,39 @@ def _alnum(s: str) -> str:
     return "".join(ch for ch in s if ch.isalnum())
 
 
-def reconcile_date(readings: list[EngineReading]) -> FieldResult:
-    reasons = _merge_flags([(r.engine, r.date_flags) for r in readings])
-    primary = next((r for r in readings if r.date), None)
+def _vote(readings: list[EngineReading], has, same):
+    """Majority vote anchored on Tesseract (readings[0]). Returns (primary, verified,
+    supporters, dissenters): verified needs Tesseract's reading backed by at least two
+    engines and by more engines than disagree or read nothing. With two engines this is
+    simply "both agree"."""
+    primary = next((r for r in readings if has(r)), None)
     if primary is None:
-        return FieldResult("", 0.0, reasons + ["no release date found"])
-    if primary is not readings[0]:
-        reasons.append(f"date only read by {primary.engine}")
+        return None, False, [], []
+    supporters = [r for r in readings if has(r) and same(primary, r)]
+    dissenters = [r for r in readings if r not in supporters]
+    verified = primary is readings[0] and len(supporters) >= 2 and len(supporters) > len(dissenters)
+    return primary, verified, supporters, dissenters
+
+
+def reconcile_date(readings: list[EngineReading]) -> FieldResult:
+    primary, verified, supporters, dissenters = _vote(
+        readings, lambda r: r.date is not None,
+        lambda a, b: a.date.iso == b.date.iso and _alnum(a.date.printed) == _alnum(b.date.printed))
+    if primary is None:
+        return FieldResult("", 0.0, _merge_flags([(r.engine, r.date_flags) for r in readings]) + ["no release date found"])
+    counted = supporters if verified else readings  # a majority outvotes the odd engine out
+    reasons = _merge_flags([(r.engine, r.date_flags) for r in counted])
     d = primary.date
-    agree = primary is readings[0]
-    for r in readings:
-        if r is primary:
-            continue
-        if r.date is None:
-            reasons.append(f"{r.engine} found no date")
-            agree = False
-        elif r.date.iso != d.iso or _alnum(r.date.printed) != _alnum(d.printed):
-            reasons.append(f"engines disagree on date: {primary.engine} '{d.printed}' vs {r.engine} '{r.date.printed}'")
-            agree = False
-    for r in readings:
+    if not verified:
+        if primary is not readings[0]:
+            reasons.append(f"date only read by {primary.engine}")
+        for r in dissenters:
+            reasons.append(f"{r.engine} found no date" if r.date is None else
+                           f"engines disagree on date: {primary.engine} '{d.printed}' vs {r.engine} '{r.date.printed}'")
+    for r in counted:
         if r.date:
             reasons.extend(_low_conf_reasons(r, [(r.date.printed, r.date.min_conf)]))
-    return FieldResult(d.iso, d.min_conf if agree else 0.0, reasons)
+    return FieldResult(d.iso, d.min_conf if verified else 0.0, reasons)
 
 
 def _same_words(primary: list[str], other: list[str]) -> bool:
@@ -140,22 +151,21 @@ def _same_words(primary: list[str], other: list[str]) -> bool:
 
 
 def reconcile_words(readings: list[EngineReading]) -> FieldResult:
-    reasons = _merge_flags([(r.engine, r.word_flags) for r in readings])
-    primary = next((r for r in readings if r.words), readings[0])
+    primary, verified, supporters, dissenters = _vote(
+        readings, lambda r: bool(r.words),
+        lambda a, b: _same_words([w.text for w in a.words], [w.text for w in b.words]))
+    if primary is None:
+        return FieldResult("", 0.0, _merge_flags([(r.engine, r.word_flags) for r in readings]) + ["no article words found"])
+    counted = supporters if verified else readings
+    reasons = _merge_flags([(r.engine, r.word_flags) for r in counted])
     value = " ".join(w.text for w in primary.words)
-    if not value:
-        return FieldResult("", 0.0, reasons + ["no article words found"])
-    agree = primary is readings[0]
-    if not agree:
-        reasons.append(f"first words only read by {primary.engine}")
-    for r in readings:
-        if r is primary:
-            continue
-        other = " ".join(w.text for w in r.words)
-        if not _same_words([w.text for w in primary.words], [w.text for w in r.words]):
+    if not verified:
+        if primary is not readings[0]:
+            reasons.append(f"first words only read by {primary.engine}")
+        for r in dissenters:
+            other = " ".join(w.text for w in r.words)
             reasons.append(f"engines disagree on first words: {primary.engine} '{value}' vs {r.engine} '{other}'")
-            agree = False
-    for r in readings:
+    for r in counted:
         reasons.extend(_low_conf_reasons(r, [(w.text, w.conf) for w in r.words]))
-    conf = min(w.conf for w in primary.words) if agree else 0.0
+    conf = min(w.conf for w in primary.words) if verified else 0.0
     return FieldResult(value, conf, reasons)

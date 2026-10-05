@@ -18,7 +18,7 @@ from . import ocr
 from .dates import DateFound, parse_dates_in_line
 from .extract import EngineReading, first_words
 from .layout import BodyStart, BodyWord, body_words
-from .models import Box, Line
+from .models import Box, Line, Word
 
 TARGET_WORD_H = 48  # px; word height at which both engines read typewriter text best
 MAX_ROWS = 4  # the first five words never span more lines than this
@@ -147,3 +147,25 @@ def reread(engine: str, page: Image.Image, regions: Regions, lang: str, tess_lan
             got, wflags = first_words(body_words(lines, BodyStart(0, 0, None)), lang)
             words = got or None
     return Reread(date, words, wflags, date_notes, notes)
+
+
+def reread_trocr(page: Image.Image, regions: Regions, lang: str) -> Reread:
+    """TrOCR reads the same crops line by line. It has no word boxes, so words get
+    spaced-out placeholder boxes (enough for line-break hyphen joining)."""
+    def read(region: Region) -> Line:
+        text, conf = ocr.trocr_line(_crop(page, region, contrast=False, upscale_only=True))
+        return Line([Word(t, conf, (i * 100, 0, i * 100 + 50, 30)) for i, t in enumerate(text.split())])
+
+    date = None
+    if regions.date:
+        found = parse_dates_in_line(read(regions.date), 0)
+        if found:
+            date = found[0]
+            date.box = regions.date.box
+    words, wflags = None, []
+    if regions.rows:
+        lines = [ln for ln in (read(r) for r in regions.rows) if ln.words]
+        if lines:
+            got, wflags = first_words(body_words(lines, BodyStart(0, 0, None)), lang)
+            words = got or None
+    return Reread(date, words, wflags, [], [])
