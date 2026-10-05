@@ -7,6 +7,8 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -36,13 +38,54 @@ def _save(path: Path, answers: dict[str, dict], order: list[str]) -> None:
     os.replace(tmp, path)
 
 
-def _open_viewer(photo: Path) -> None:
-    # Opens the original file in place; no copies or temp files are made.
-    opener = "open" if sys.platform == "darwin" else "xdg-open"
+def _default_viewer() -> list[str] | None:
+    """Command line of the desktop's default image viewer (from its .desktop file), if found."""
     try:
-        subprocess.Popen([opener, str(photo)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        desktop = subprocess.run(["xdg-mime", "query", "default", "image/jpeg"],
+                                 capture_output=True, text=True, check=False).stdout.strip()
     except FileNotFoundError:
-        print(f"  (couldn't launch a viewer; open {photo} yourself)")
+        return None
+    dirs = [os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))]
+    dirs += os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
+    for d in dirs:
+        f = Path(d) / "applications" / desktop
+        if desktop and f.is_file():
+            for line in f.read_text(errors="replace").splitlines():
+                if line.startswith("Exec="):
+                    args = [a for a in shlex.split(line[5:]) if not re.fullmatch(r"%[a-zA-Z]", a)]
+                    return args or None
+    return None
+
+
+class Viewer:
+    """Shows one photo at a time, closing the previous viewer window first.
+    Opens the original file in place; no copies or temp files are made."""
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.cmd = _default_viewer() if enabled and sys.platform.startswith("linux") else None
+        self.proc: subprocess.Popen | None = None
+
+    def show(self, photo: Path) -> None:
+        if not self.enabled:
+            return
+        self.close()
+        cmd = self.cmd + [str(photo)] if self.cmd else ["open" if sys.platform == "darwin" else "xdg-open", str(photo)]
+        try:
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            print(f"  (couldn't launch a viewer; open {photo} yourself)")
+        if not self.cmd:
+            self.proc = None  # xdg-open/open hand off and exit; nothing we can close later
+
+    def close(self) -> None:
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
 
 
 def _ask(prompt: str) -> str:
@@ -105,24 +148,29 @@ def run(folder: Path, out: Path, open_viewer: bool = True) -> int:
     i = next((k for k, n in enumerate(order) if n not in done), len(order))
     print(f"{len(photos)} photos, {len(done & set(order))} already answered. Saving to {out}\n{HELP}")
     print("Type exactly what's on the paper: correct spelling and capitals, leading articles left out.\n")
-    while i < len(photos):
-        photo = photos[i]
-        cur = answers.get(photo.name, {})
-        print(f"[{i + 1}/{len(photos)}] {photo.name}")
-        if open_viewer:
-            _open_viewer(photo)
-        date = _ask_date(cur.get("release_date", ""))
-        if date in ("b", "s", "q"):
-            action = date
-        else:
-            words = _ask_words(cur.get("first_five_words", ""))
-            action = words if words in ("b", "s", "q") else None
-            if action is None:
-                answers[photo.name] = {"file": photo.name, "release_date": date, "first_five_words": words}
-                _save(out, answers, order)
-        if action == "q":
-            break
-        i = max(i - 1, 0) if action == "b" else i + 1
+    viewer = Viewer(open_viewer)
+    try:
+        while i < len(photos):
+            photo = photos[i]
+            cur = answers.get(photo.name, {})
+            print(f"[{i + 1}/{len(photos)}] {photo.name}")
+            viewer.show(photo)
+            date = _ask_date(cur.get("release_date", ""))
+            if date in ("b", "s", "q"):
+                action = date
+            else:
+                words = _ask_words(cur.get("first_five_words", ""))
+                action = words if words in ("b", "s", "q") else None
+                if action is None:
+                    answers[photo.name] = {"file": photo.name, "release_date": date, "first_five_words": words}
+                    _save(out, answers, order)
+            if action == "q":
+                break
+            i = max(i - 1, 0) if action == "b" else i + 1
+    except KeyboardInterrupt:
+        print()
+    finally:
+        viewer.close()
     _save(out, answers, order)
     filled = sum(1 for n in order if answers.get(n, {}).get("release_date") or answers.get(n, {}).get("first_five_words"))
     print(f"\nSaved {out}: {filled}/{len(order)} photos answered.")
