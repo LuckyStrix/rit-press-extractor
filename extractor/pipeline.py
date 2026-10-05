@@ -16,7 +16,7 @@ LOW_RES_WIDTH = 1500
 
 @dataclass(frozen=True)
 class Options:
-    reread: bool = True  # second, focused read of the date and opening words
+    reread: bool = False  # second, focused read of the date and opening words (experimental)
     best_model: bool = False  # Tesseract "best" models (setup --tess-best)
     multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
 

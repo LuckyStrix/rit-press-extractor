@@ -5,6 +5,7 @@ import csv
 import io
 import os
 import re
+import shutil
 import subprocess
 import warnings
 from functools import lru_cache
@@ -17,6 +18,9 @@ from .models import Line, Word, merge_rows, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 TESSDATA_BEST = MODELS_DIR / "tessdata_best"  # optional, filled by `setup --tess-best`
+# Tesseract binary: $TESSERACT, else PATH, else the Windows installer's default location.
+TESSERACT = (os.environ.get("TESSERACT") or shutil.which("tesseract")
+             or r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Harmless PyTorch notices from EasyOCR on a CPU-only machine; they don't affect results.
 warnings.filterwarnings("ignore", message=r".*pin_memory.*no accelerator", category=UserWarning)
@@ -57,7 +61,7 @@ def _png_bytes(img: Image.Image) -> bytes:
 
 def _run_tesseract(img: Image.Image, args: list[str]) -> str:
     proc = subprocess.run(
-        ["tesseract", "stdin", "stdout", *args],
+        [TESSERACT, "stdin", "stdout", *args],
         input=_png_bytes(img), capture_output=True, check=False,
     )
     if proc.returncode != 0:

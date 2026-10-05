@@ -9,6 +9,7 @@ from __future__ import annotations
 import socket
 
 _enabled = False
+_AF_UNIX = getattr(socket, "AF_UNIX", None)  # missing on Windows
 
 
 class NetworkBlocked(RuntimeError):
@@ -27,17 +28,17 @@ def enable() -> None:
     real_connect_ex = socket.socket.connect_ex
 
     def connect(self, address):
-        if self.family == socket.AF_UNIX:
+        if _AF_UNIX is not None and self.family == _AF_UNIX:
             return real_connect(self, address)
         _deny()
 
     def connect_ex(self, address):
-        if self.family == socket.AF_UNIX:
+        if _AF_UNIX is not None and self.family == _AF_UNIX:
             return real_connect_ex(self, address)
         _deny()
 
     def sendto(self, *args):
-        if self.family == socket.AF_UNIX:
+        if _AF_UNIX is not None and self.family == _AF_UNIX:
             return _real_sendto(self, *args)
         _deny()
 

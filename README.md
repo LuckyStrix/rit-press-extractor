@@ -97,13 +97,6 @@ it would put the page on the public internet.
 No OCR is perfect on phone photos. Instead of guessing, each page is read by
 **two independent OCR engines**, Tesseract (LSTM) and EasyOCR (CRNN).
 
-Each page is read twice. The full-page pass finds where the date and the opening
-words are. Then each of those rows is cropped, scaled to the text height OCR reads
-best, contrast-boosted, and **re-read** by both engines in single-line mode. Small
-marks like periods and apostrophes get lost when a whole page is shrunk to fit an
-engine, but survive at this scale. The re-read values are used wherever a re-read
-succeeds (turn this off with `--no-reread`).
-
 A field is left unflagged only when **all** of these hold:
 
 1. Both engines read the field **character for character the same**. The only
@@ -166,7 +159,7 @@ These are off by default and planned for evaluation against the answer key:
 |---|---|---|
 | `--best-model` | Tesseract's float "best" models instead of the integer "fast" ones Debian ships. Run `setup --tess-best` once to download them (~15 MB for English). | slower full-page pass |
 | `--multipass` | reads each field with three differently cleaned Tesseract passes (Sauvola, Otsu, no contrast boost) and keeps the majority. Disagreement between passes is flagged. | about 2 more seconds per field |
-| `--no-reread` | turns off the focused second read (for comparison) | — |
+| `--reread` | crops the date and opening-word rows, scales and contrast-boosts them, and re-reads them in single-line mode. **In testing on 17 real 1969 releases this dropped verified fields from 23 to 9 of 34** (Tesseract was less confident on the crops, and a few crops read worse), so it needs tuning before use. | about 3 more seconds per page |
 
 They work with both `process` and `serve`. Turn one on by default only if the
 answer key shows it helps.

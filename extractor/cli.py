@@ -46,7 +46,7 @@ def cmd_setup(args) -> int:
 def _options(args):
     from .pipeline import Options
 
-    return Options(reread=not args.no_reread, best_model=args.best_model, multipass=args.multipass)
+    return Options(reread=args.reread, best_model=args.best_model, multipass=args.multipass)
 
 
 def _init_worker(jobs: int) -> None:
@@ -154,7 +154,8 @@ def main(argv: list[str] | None = None) -> int:
 
     def add_ocr_options(sp):
         g = sp.add_argument_group("OCR options")
-        g.add_argument("--no-reread", action="store_true", help="skip the focused second read of each field")
+        g.add_argument("--reread", action="store_true",
+                       help="experimental: focused second read of each field (lowered results in testing)")
         g.add_argument("--best-model", action="store_true", help="use Tesseract 'best' models (slower, more accurate)")
         g.add_argument("--multipass", action="store_true",
                        help="read each field with 3 differently cleaned Tesseract passes and take the majority")
