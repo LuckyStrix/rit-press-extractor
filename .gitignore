@@ -16,3 +16,12 @@ models/
 .venv/
 __pycache__/
 .pytest_cache/
+# Never commit secrets, logs, archives or downloaded packages
+.env
+*.env
+*.log
+*.tgz
+*.tar.gz
+*.zip
+*.whl
+*.tmp
