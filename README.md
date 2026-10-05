@@ -72,3 +72,9 @@ python -m pytest -q          # unit tests + end-to-end tests on generated pages 
 The code is in `extractor/`. `pipeline.py` is the per-page flow, `layout.py`
 finds the article, `extract.py` holds the voting rules, and `cli.py` defines the
 commands.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Third-party
+components and their licenses are listed in
+[Privacy and copyright](docs/privacy-and-copyright.md#licenses).

@@ -1,7 +1,5 @@
 """Full pipeline on generated pages with known answers (slow: runs both OCR engines)."""
-import io
 
-import pymupdf
 import pytest
 from PIL import Image
 
@@ -43,11 +41,7 @@ def test_heic_and_pdf_inputs(tmp_path):
     heic = tmp_path / "0007.heic"
     page.save(heic, format="HEIF")
     pdf = tmp_path / "scan.pdf"
-    buf = io.BytesIO()
-    page.save(buf, format="PNG")
-    with pymupdf.open() as doc:
-        doc.new_page(width=612, height=792).insert_image(pymupdf.Rect(0, 0, 612, 792), stream=buf.getvalue())
-        doc.save(pdf)
+    page.save(pdf, format="PDF", resolution=150)  # 8.5 in wide at 150 dpi; loader renders at 300 dpi
     for path in (heic, pdf):
         pages = list(load_pages(path))
         assert len(pages) == 1 and isinstance(pages[0][1], Image.Image) and pages[0][1].width > 1000

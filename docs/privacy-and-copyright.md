@@ -16,6 +16,8 @@
 - **The extracted data is low-risk under copyright** (a fact plus a five-word
   identifier). The photos are full copies of the releases, so make and keep
   them only under your institution's digitization authority.
+- **The tool itself is Apache-2.0,** and all its dependencies are permissive or
+  LGPL, so it can also be run as a service.
 
 ---
 
@@ -156,26 +158,36 @@ In practice:
 
 ---
 
-## Third-party software licenses
+## Licenses
 
-The tool runs on open-source components. All are fine for internal use as described here.
+### This project
+
+The RIT Press Release Extractor is licensed under the **Apache License 2.0**
+(see `LICENSE` and `NOTICE`). You may use, modify and run it for any purpose,
+including commercially or as a hosted service. If you redistribute it, keep the
+license and notice files and mark any files you changed.
+
+### Third-party components
+
+Every component is under a permissive license or the LGPL. **None restricts
+running the tool as a network service.**
 
 | Component | License |
 |---|---|
 | Tesseract OCR and its models | Apache-2.0 |
-| EasyOCR | Apache-2.0 |
-| docTR (python-doctr) | Apache-2.0 |
+| EasyOCR and its models | Apache-2.0 |
+| docTR (python-doctr) and its models | Apache-2.0 |
 | PyTorch / torchvision | BSD-style and Apache-2.0 (mixed permissive) |
 | OpenCV | Apache-2.0 |
+| pypdfium2 / PDFium (reads PDFs) | Apache-2.0 / BSD-3-Clause |
 | Pillow | MIT-CMU |
-| pillow-heif | BSD-3-Clause (bundles libheif, LGPL-3.0) |
+| pillow-heif (reads iPhone HEIC photos) | BSD-3-Clause; bundles libheif and libde265 (LGPL-3.0) |
+| python-bidi (used by EasyOCR) | LGPL-3.0 |
 | transformers / TrOCR model (optional) | Apache-2.0 / MIT |
-| **PyMuPDF** (reads PDFs) | **AGPL-3.0** or commercial license |
 
-**PyMuPDF's AGPL license matters only if you distribute this tool or offer it
-to other people as a network service.** In that case its source-sharing
-requirements apply (or a commercial PyMuPDF license is needed). Using it
-yourself, including through your own phone over Tailscale, is internal use.
-
-This repository doesn't include a license of its own yet, so by default all
-rights are reserved by its author.
+**About the LGPL parts:**
+- The LGPL has no network-service clause, and it doesn't extend to code that
+  merely uses the library, so this project's own license is unaffected.
+- If you redistribute the tool *bundled with* these libraries, recipients must
+  be able to replace the LGPL library with their own version. Installing
+  dependencies with `pip`, as the setup guides do, satisfies this.

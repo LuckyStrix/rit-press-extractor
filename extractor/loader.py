@@ -1,11 +1,10 @@
 """Turn input files (phone photos, scans, PDFs) into RGB page images, in memory only."""
 from __future__ import annotations
 
-import io
 from collections.abc import Iterator
 from pathlib import Path
 
-import pymupdf
+import pypdfium2 as pdfium
 from PIL import Image, ImageOps, ImageSequence
 from pillow_heif import register_heif_opener
 
@@ -33,10 +32,12 @@ def find_inputs(paths: list[Path]) -> list[Path]:
 def load_pages(path: Path) -> Iterator[tuple[int, Image.Image]]:
     """Yield (1-based page number, RGB image) for every page in the file."""
     if path.suffix.lower() in PDF_EXTS:
-        with pymupdf.open(path) as doc:
-            for i, page in enumerate(doc, start=1):
-                pix = page.get_pixmap(dpi=PDF_DPI)
-                yield i, Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+        pdf = pdfium.PdfDocument(path)
+        try:
+            for i in range(len(pdf)):
+                yield i + 1, pdf[i].render(scale=PDF_DPI / 72).to_pil().convert("RGB")
+        finally:
+            pdf.close()
         return
     with Image.open(path) as img:
         if img.format == "MPO":  # extra frames are gain maps/depth data, not pages

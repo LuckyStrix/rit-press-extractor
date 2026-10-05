@@ -2,7 +2,7 @@
 easyocr==1.7.2
 pillow>=12
 pillow-heif>=1.8
-pymupdf>=1.28
+pypdfium2>=4.30
 opencv-python-headless>=4.11
 pytest>=9
 # Optional extra engines (--engines ...,doctr / ...,trocr); models via setup --doctr / --trocr
