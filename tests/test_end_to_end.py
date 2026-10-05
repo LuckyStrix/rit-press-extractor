@@ -1,7 +1,7 @@
 """Full pipeline on generated pages with known answers (slow: runs both OCR engines)."""
 import io
 
-import fitz
+import pymupdf
 import pytest
 from PIL import Image
 
@@ -24,6 +24,8 @@ def test_fields_correct(spec, variant):
     assert row.release_date == spec.expected_date, row.review_reasons
     assert row.first_five_words == spec.expected_words, row.review_reasons
     assert row.language == spec.lang
+    if spec.must_flag:
+        assert row.needs_review == "YES"
 
 
 def test_wrong_answer_never_unflagged():
@@ -43,8 +45,8 @@ def test_heic_and_pdf_inputs(tmp_path):
     pdf = tmp_path / "scan.pdf"
     buf = io.BytesIO()
     page.save(buf, format="PNG")
-    with fitz.open() as doc:
-        doc.new_page(width=612, height=792).insert_image(fitz.Rect(0, 0, 612, 792), stream=buf.getvalue())
+    with pymupdf.open() as doc:
+        doc.new_page(width=612, height=792).insert_image(pymupdf.Rect(0, 0, 612, 792), stream=buf.getvalue())
         doc.save(pdf)
     for path in (heic, pdf):
         pages = list(load_pages(path))

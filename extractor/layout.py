@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .dates import RELEASE_CUES
 from .models import Line
-from .words import clean_word, is_word
+from .words import APOSTROPHES, clean_word, is_word
 
 DASHES = {"—", "–", "―", "‒", "--", "-", "~", "_", "−"}
 NON_BODY = re.compile(r"contact|for more information|phone|tel\.|telephone|fax|e-?mail|www\.|http|@", re.I)
@@ -117,6 +117,12 @@ def body_words(lines: list[Line], start: BodyStart, limit: int = 40) -> list[Bod
                 out.append(BodyWord(clean_word(joined), min(w.conf, nxt.conf), note))
                 li, wi = li + 1, 1
                 words = lines[li].words
+                continue
+            if w.text[-1:] in APOSTROPHES and len(w.text) > 1 and not last_on_line:
+                # Elided forms never stand alone: OCR spacing "qu' une" means "qu'une".
+                nxt = words[wi + 1]
+                out.append(BodyWord(clean_word(w.text + nxt.text), min(w.conf, nxt.conf)))
+                wi += 2
                 continue
             if is_word(w.text) and clean_word(w.text):
                 out.append(BodyWord(clean_word(w.text), w.conf))

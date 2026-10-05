@@ -33,10 +33,11 @@ digits (`0042.jpg`), those digits go in `item_number`.
 
 ```bash
 .venv/bin/python -m extractor serve           # listens on 127.0.0.1:8765 only
-tailscale serve --bg 8765                     # HTTPS, reachable only inside your tailnet
+tailscale serve --bg --https=8443 8765        # HTTPS, reachable only inside your tailnet
 ```
 
-Open `https://<this-machine>.<tailnet>.ts.net` on the phone. Line the page up in
+Open `https://<your-computer>.<your-tailnet>.ts.net:8443` on the phone (port 8443 keeps
+your existing `tailscale serve` on 443 untouched). Line the page up in
 the preview and tap the shutter. The number is the item number. It goes up by 1
 after every shot, and you can tap it to type a different one. Shots queue on the
 phone and retry until the laptop has them, so none get lost if the connection
@@ -44,7 +45,7 @@ drops. Each photo is saved as `data/captures/<number>.jpg` and processed in the
 background, and its row is added to `data/results.csv`. A reused number never
 overwrites an earlier photo (it saves `0012-2.jpg`).
 
-Stop sharing with `tailscale serve --https=443 off`. **Never use `tailscale funnel`**:
+Stop sharing with `tailscale serve --https=8443 off`. **Never use `tailscale funnel`**:
 it would put the page on the public internet.
 
 ## Output columns
@@ -55,9 +56,10 @@ it would put the page on the public internet.
 | `release_date` | ISO `YYYY-MM-DD` (or `YYYY-MM` if the page gives no day) |
 | `release_date_as_printed` | exactly as it appears on the page |
 | `first_five_words` | first five words of the body (see rules below) |
-| `date_confidence`, `words_confidence` | lowest per-word OCR confidence (0–100) when both engines agree; `0` if they disagree |
+| `date_verified`, `words_verified` | `YES` only if that field passed every check below |
+| `date_confidence`, `words_confidence` | Tesseract's lowest word confidence (0–100) when both engines agree; `0` if they disagree. Useful for sorting the review queue. It rarely reaches 100 even on correct reads, so use the verified columns to decide what needs checking. |
 | `language` | detected body language |
-| `needs_review` | `YES` unless every check passed |
+| `needs_review` | `YES` if either field is unverified |
 | `review_reasons` | every reason the row was flagged, in plain words |
 
 ## How the fields are chosen
@@ -65,6 +67,9 @@ it would put the page on the public internet.
 * **Article start**: the body begins right after the dateline (`ROCHESTER, N.Y. —`).
   Letterhead, "FOR IMMEDIATE RELEASE", contacts and the headline are skipped. If
   no dateline is found, the first prose paragraph is used and the row is flagged.
+* **Language**: pages are read as English. A page switches to another language
+  only when that language clearly dominates the text. A weak hint of another
+  language keeps English and flags the row.
 * **First five words**: all leading articles are skipped, in the body's language,
   including stacked and elided ones (`The`, `Los`, `Die`, `L'université` → `université`).
   Surrounding quotes and punctuation are stripped. Abbreviation periods (`Dr.`,
@@ -87,8 +92,8 @@ left unflagged only when **all** of these hold:
 2. Every Tesseract word confidence is ≥ 90. EasyOCR scores short words badly even
    when it reads them right, so its floor is lower (30) and only catches reads it
    was itself unsure of. Agreement is the main check.
-3. No layout guess was needed, the date isn't ambiguous, and the language was
-   identified clearly.
+3. No layout guess was needed, the date isn't ambiguous, and there's no doubt
+   about the language.
 
 Anything else is `needs_review=YES`, and the reason says exactly what to check.
 Thresholds are in `extractor/extract.py` (`MIN_CONF`). Two engines agreeing on

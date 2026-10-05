@@ -62,7 +62,7 @@ class CaptureStore:
     def worker(self) -> None:
         from .loader import load_pages
         from .output import append_rows
-        from .pipeline import Row, process_page
+        from .pipeline import failed_row, process_page
 
         while True:
             path, item = self.jobs.get()
@@ -74,8 +74,7 @@ class CaptureStore:
                           f"{row.release_date or '-'} | {row.first_five_words or '-'}", flush=True)
             except Exception as exc:  # never lose track of a capture: record the failure as a row
                 traceback.print_exc()
-                append_rows(self.csv, [Row(path.name, 1, item, "", "", "", "0", "0", "unknown", "YES",
-                                           f"processing failed: {exc}")])
+                append_rows(self.csv, [failed_row(path.name, item, f"processing failed: {exc}")])
             finally:
                 self.jobs.task_done()
 
@@ -153,7 +152,7 @@ def serve(port: int, data_dir: Path) -> None:
     threading.Thread(target=store.worker, daemon=True).start()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store))
     print(f"Capture server on http://127.0.0.1:{port} (localhost only).")
-    print(f"Expose it to your tailnet with:  tailscale serve --bg {port}")
+    print(f"Expose it to your tailnet with:  tailscale serve --bg --https=8443 {port}")
     print(f"Photos -> {store.captures}   Results -> {store.csv}")
     try:
         httpd.serve_forever()

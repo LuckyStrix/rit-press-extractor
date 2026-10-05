@@ -39,7 +39,7 @@ def cmd_process(args) -> int:
     netguard.enable()
     from .loader import find_inputs, load_pages
     from .output import append_rows
-    from .pipeline import process_page
+    from .pipeline import failed_row, process_page
 
     ensure_private_dir(DATA_DIR)
     out = Path(args.output)
@@ -52,8 +52,9 @@ def cmd_process(args) -> int:
         item = m.group(1) if (m := re.match(r"(\d+)", path.stem)) else ""
         try:
             pages = list(load_pages(path))
-        except Exception as exc:  # unreadable/corrupt file: report and move on
-            print(f"  {path.name}: could not open ({exc})", file=sys.stderr)
+        except Exception as exc:  # unreadable/corrupt file: record it so nothing goes missing
+            print(f"  [REVIEW] {path.name}: could not open ({exc})", file=sys.stderr)
+            append_rows(out, [failed_row(path.name, item, f"could not open file: {exc}")])
             flagged += 1
             continue
         for page_no, img in pages:

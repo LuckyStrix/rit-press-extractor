@@ -5,7 +5,7 @@ import io
 from collections.abc import Iterator
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pymupdf
 from PIL import Image, ImageOps, ImageSequence
 from pillow_heif import register_heif_opener
 
@@ -33,7 +33,7 @@ def find_inputs(paths: list[Path]) -> list[Path]:
 def load_pages(path: Path) -> Iterator[tuple[int, Image.Image]]:
     """Yield (1-based page number, RGB image) for every page in the file."""
     if path.suffix.lower() in PDF_EXTS:
-        with fitz.open(path) as doc:
+        with pymupdf.open(path) as doc:
             for i, page in enumerate(doc, start=1):
                 pix = page.get_pixmap(dpi=PDF_DPI)
                 yield i, Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")

@@ -23,7 +23,11 @@ def _safe_cell(value):
 def append_rows(path: Path, rows: list[Row]) -> None:
     with _lock:
         path.parent.mkdir(parents=True, exist_ok=True)
-        new = not path.exists()
+        new = not path.exists() or path.stat().st_size == 0
+        if not new:
+            with open(path, newline="", encoding="utf-8") as f:
+                if next(csv.reader(f), None) != COLUMNS:
+                    raise ValueError(f"{path} has different columns; choose a new output file with -o")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMNS)

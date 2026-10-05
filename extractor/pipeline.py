@@ -21,23 +21,13 @@ class Row:
     release_date: str
     release_date_as_printed: str
     first_five_words: str
+    date_verified: str
+    words_verified: str
     date_confidence: str
     words_confidence: str
     language: str
     needs_review: str
     review_reasons: str
-
-
-def _merge_engine_flags(readings) -> list[str]:
-    """Flags raised by every engine are listed once; engine-specific ones get a prefix."""
-    out = []
-    all_flags = [set(r.flags) for r in readings]
-    for r in readings:
-        for f in r.flags:
-            text = f if all(f in s for s in all_flags) else f"{r.engine}: {f}"
-            if text not in out:
-                out.append(text)
-    return out
 
 
 def process_page(img: Image.Image, file: str, page: int, item_number: str = "", force_lang: str | None = None) -> Row:
@@ -54,12 +44,18 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
         reasons.append(f"unsupported script '{script}'; read as Latin")
     tess_lang = force_lang or ocr.SCRIPT_TO_TESS.get(script or "Latin", "eng")
     lines = ocr.tesseract_lines(page_img, tess_lang)
-    lang, margin = detect_language(" ".join(ln.text for ln in lines))
-    if not force_lang and lang and lang != "en" and tess_lang == "eng" and lang in LANG_TO_TESS:
-        tess_lang = LANG_TO_TESS[lang]
-        lines = ocr.tesseract_lines(page_img, tess_lang)  # re-read with the right language model
-    if lang and margin < 2.0:
-        reasons.append(f"language identification uncertain (best guess '{lang}')")
+    # Assume English (nearly every release is); switch only when another language clearly wins.
+    detected, margin = detect_language(" ".join(ln.text for ln in lines))
+    lang = "en"
+    if force_lang or not detected or detected == "en":
+        pass
+    elif margin >= 2.0 and detected in LANG_TO_TESS:
+        lang = detected
+        if tess_lang == "eng":
+            tess_lang = LANG_TO_TESS[lang]
+            lines = ocr.tesseract_lines(page_img, tess_lang)  # re-read with the right language model
+    else:
+        reasons.append(f"text may be non-English (weak signal for '{detected}'); read as English")
 
     readings = [read_fields("tesseract", lines, lang)]
     easy_langs = ocr.easy_langs_for(tess_lang)
@@ -74,22 +70,27 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
 
     date = reconcile_date(readings)
     words = reconcile_words(readings)
-    reasons += _merge_engine_flags(readings) + date.reasons + words.reasons
-    if not date.value:
-        reasons.append("no release date found")
-    if not words.value:
-        reasons.append("no article words found")
+    # Page-level problems (resolution, language, single engine) apply to both fields.
+    date_ok = not reasons and not date.reasons
+    words_ok = not reasons and not words.reasons
+    reasons += date.reasons + [r for r in words.reasons if r not in date.reasons]
     printed = next((r.date.printed for r in readings if r.date and r.date.iso == date.value), "")
-    reasons = list(dict.fromkeys(reasons))
     return Row(
         file=file, page=page, item_number=item_number,
         release_date=date.value, release_date_as_printed=" ".join(printed.split()),
         first_five_words=words.value,
+        date_verified="YES" if date_ok else "NO", words_verified="YES" if words_ok else "NO",
         date_confidence=f"{date.confidence:.0f}", words_confidence=f"{words.confidence:.0f}",
-        language=lang or "unknown",
+        language=lang,
         needs_review="YES" if reasons else "no",
         review_reasons=" | ".join(reasons),
     )
+
+
+def failed_row(file: str, item_number: str, reason: str) -> Row:
+    return Row(file=file, page=1, item_number=item_number, release_date="", release_date_as_printed="",
+               first_five_words="", date_verified="NO", words_verified="NO", date_confidence="0",
+               words_confidence="0", language="unknown", needs_review="YES", review_reasons=reason)
 
 
 def row_dict(row: Row) -> dict:

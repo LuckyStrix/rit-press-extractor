@@ -18,6 +18,7 @@ MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 # Tesseract script name (from OSD) -> Tesseract language model to use.
 SCRIPT_TO_TESS = {
     "Latin": "eng",
+    "Fraktur": "eng",  # a Latin typeface; OSD reports it for some typewriter faces
     "Cyrillic": "rus+ukr+bul+srp",
     "Greek": "ell",
     "Han": "chi_sim+chi_tra",
@@ -66,10 +67,13 @@ def tesseract_osd(img: Image.Image) -> tuple[int, str | None]:
     except RuntimeError:
         return 0, None  # too little text for OSD; not an error
     rotate = re.search(r"Rotate:\s*(\d+)", out)
-    script = re.search(r"Script:\s*(\w+)", out)
     conf = re.search(r"Orientation confidence:\s*([\d.]+)", out)
+    script = re.search(r"Script:\s*(\w+)", out)
+    script_conf = re.search(r"Script confidence:\s*([\d.]+)", out)
     rot = int(rotate.group(1)) if rotate and conf and float(conf.group(1)) >= 2.0 else 0
-    return rot, script.group(1) if script else None
+    # Weak script guesses are noise; fall back to Latin (the language check runs afterwards anyway).
+    sure = script and script_conf and float(script_conf.group(1)) >= 2.0
+    return rot, script.group(1) if sure else None
 
 
 def tesseract_lines(img: Image.Image, lang: str) -> list[Line]:

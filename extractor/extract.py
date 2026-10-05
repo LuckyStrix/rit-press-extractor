@@ -20,19 +20,21 @@ class EngineReading:
     engine: str
     date: DateFound | None
     words: list[BodyWord]
-    flags: list[str] = field(default_factory=list)
+    date_flags: list[str] = field(default_factory=list)
+    word_flags: list[str] = field(default_factory=list)
     anchor: tuple[Line, int, Line | None] | None = None  # body line, word index, dateline line
 
 
 def read_fields(engine: str, lines: list[Line], lang: str | None,
                 anchor: tuple[Line, int, Line | None] | None = None) -> EngineReading:
     """anchor: where the primary engine found the body, so a second engine reads the same spot."""
-    flags: list[str] = []
     start = align_body_start(lines, *anchor) if anchor else find_body_start(lines)
     if start is None:
         date, dflags = pick_release_date(lines, len(lines), None)
-        return EngineReading(engine, date, [], ["could not find the article body", *dflags])
-    flags.extend(start.flags)
+        nobody = ["could not find the article body"]
+        return EngineReading(engine, date, [], nobody + dflags, nobody)
+    # Where the body starts also decides what counts as header, so layout doubts hit both fields.
+    date_flags, word_flags = list(start.flags), list(start.flags)
     dateline = None
     if start.dateline is not None:
         dl = lines[start.dateline]
@@ -42,7 +44,7 @@ def read_fields(engine: str, lines: list[Line], lang: str | None,
             dateline = None
     header_end = min(start.line, start.dateline if start.dateline is not None else start.line)
     date, dflags = pick_release_date(lines, header_end, dateline)
-    flags.extend(dflags)
+    date_flags.extend(dflags)
 
     words = body_words(lines, start)
     remaining, removed = strip_leading_articles([w.text for w in words], lang)
@@ -50,20 +52,31 @@ def read_fields(engine: str, lines: list[Line], lang: str | None,
     if kept and remaining and kept[0].text != remaining[0]:  # elided article was split off
         kept[0] = BodyWord(remaining[0], kept[0].conf, kept[0].note)
     if removed and lang is None:
-        flags.append(f"language unknown; removed leading word(s) {removed} as articles")
+        word_flags.append(f"language unknown; removed leading word(s) {removed} as articles")
     first = kept[:N_WORDS]
     if len(first) < N_WORDS:
-        flags.append(f"only {len(first)} body word(s) found")
-    flags.extend(w.note for w in first if w.note)
+        word_flags.append(f"only {len(first)} body word(s) found")
+    word_flags.extend(w.note for w in first if w.note)
     body_anchor = (lines[start.line], start.word, lines[start.dateline] if start.dateline is not None else None)
-    return EngineReading(engine, date, first, flags, body_anchor)
+    return EngineReading(engine, date, first, date_flags, word_flags, body_anchor)
 
 
 @dataclass
 class FieldResult:
     value: str
-    confidence: float  # min word confidence across agreeing engines; 0 if they disagree
-    reasons: list[str]
+    confidence: float  # Tesseract's lowest word confidence if the engines agree; 0 if not
+    reasons: list[str]  # empty means verified
+
+
+def _merge_flags(flag_lists: list[tuple[str, list[str]]]) -> list[str]:
+    """Flags every engine raised are listed once; engine-specific ones get an engine prefix."""
+    out: list[str] = []
+    for engine, flags in flag_lists:
+        for f in flags:
+            text = f if all(f in fl for _, fl in flag_lists) else f"{engine}: {f}"
+            if text not in out:
+                out.append(text)
+    return out
 
 
 def _low_conf_reasons(r: EngineReading, confs: list[tuple[str, float]]) -> list[str]:
@@ -76,16 +89,14 @@ def _alnum(s: str) -> str:
 
 
 def reconcile_date(readings: list[EngineReading]) -> FieldResult:
-    primary = readings[0]
-    reasons: list[str] = []
-    if primary.date is None:
-        others = [r for r in readings[1:] if r.date]
-        if not others:
-            return FieldResult("", 0.0, [])
-        primary = others[0]
+    reasons = _merge_flags([(r.engine, r.date_flags) for r in readings])
+    primary = next((r for r in readings if r.date), None)
+    if primary is None:
+        return FieldResult("", 0.0, reasons + ["no release date found"])
+    if primary is not readings[0]:
         reasons.append(f"date only read by {primary.engine}")
     d = primary.date
-    agree = True
+    agree = primary is readings[0]
     for r in readings:
         if r is primary:
             continue
@@ -98,15 +109,18 @@ def reconcile_date(readings: list[EngineReading]) -> FieldResult:
     for r in readings:
         if r.date:
             reasons.extend(_low_conf_reasons(r, [(r.date.printed, r.date.min_conf)]))
-    conf = min(r.date.min_conf for r in readings if r.date) if agree else 0.0
-    return FieldResult(d.iso, conf, reasons)
+    return FieldResult(d.iso, d.min_conf if agree else 0.0, reasons)
 
 
 def reconcile_words(readings: list[EngineReading]) -> FieldResult:
+    reasons = _merge_flags([(r.engine, r.word_flags) for r in readings])
     primary = next((r for r in readings if r.words), readings[0])
     value = " ".join(w.text for w in primary.words)
-    reasons: list[str] = []
-    agree = bool(primary.words)
+    if not value:
+        return FieldResult("", 0.0, reasons + ["no article words found"])
+    agree = primary is readings[0]
+    if not agree:
+        reasons.append(f"first words only read by {primary.engine}")
     for r in readings:
         if r is primary:
             continue
@@ -116,5 +130,5 @@ def reconcile_words(readings: list[EngineReading]) -> FieldResult:
             agree = False
     for r in readings:
         reasons.extend(_low_conf_reasons(r, [(w.text, w.conf) for w in r.words]))
-    conf = min((w.conf for r in readings for w in r.words), default=0.0) if agree else 0.0
+    conf = min(w.conf for w in primary.words) if agree else 0.0
     return FieldResult(value, conf, reasons)

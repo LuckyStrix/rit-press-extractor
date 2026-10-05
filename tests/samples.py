@@ -21,6 +21,7 @@ class Spec:
     expected_date: str
     expected_words: str
     lang: str = "en"
+    must_flag: bool = False  # ambiguous by design: the row has to be sent for review
 
 
 SPECS = [
@@ -53,6 +54,23 @@ SPECS = [
         "de professeurs se rendra à Montréal pour une conférence sur la "
         "technologie et les arts graphiques dans le cadre d'un échange.",
         "1992-03-14", "université a annoncé aujourd'hui qu'une", lang="fr",
+    ),
+    Spec(
+        "numeric_emdash",
+        ["NEWS RELEASE", "Rochester Institute of Technology", "", "5/14/82"],
+        "Library Exhibit Shows Rare Books",
+        "ROCHESTER, N.Y. — An exhibit of rare books from the Cary Collection "
+        "opens next week in Wallace Memorial Library and runs through June.",
+        "1982-05-14", "exhibit of rare books from", must_flag=True,
+    ),
+    Spec(
+        "no_dateline",
+        ["ROCHESTER INSTITUTE OF TECHNOLOGY", "", "FOR RELEASE MONDAY, JUNE 2, 1975"],
+        "COMMENCEMENT SET FOR SATURDAY",
+        "The Rochester Institute of Technology will hold its annual commencement "
+        "exercises on Saturday in the field house, with more than two thousand "
+        "graduates expected to receive degrees.",
+        "1975-06-02", "Rochester Institute of Technology will", must_flag=True,
     ),
 ]
 

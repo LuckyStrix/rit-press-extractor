@@ -40,7 +40,7 @@ for _names in _MONTHS_BY_LANG.values():
         MONTHS[unicodedata.normalize("NFD", _n).encode("ascii", "ignore").decode()] = _i
 
 _MONTH_ALT = "|".join(sorted(map(re.escape, MONTHS), key=len, reverse=True))
-_M = rf"(?P<m>{_MONTH_ALT})\.?"
+_M = rf"(?P<m>{_MONTH_ALT})(?:\s?\.)?"
 _D = r"(?P<d>[0-3]?\d)(?:st|nd|rd|th|er|e|º|°|\.)?"
 _Y = r"(?P<y>1[89]\d\d|20\d\d|['’]\d\d)"
 _B = r"(?<![\w])"  # left word boundary that also works before digits
