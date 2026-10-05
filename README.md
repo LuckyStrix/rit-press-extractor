@@ -65,8 +65,7 @@ it would put the page on the public internet.
 ## How the fields are chosen
 
 * **Article start**, checked in this order:
-  1. Right after a dateline (`ROCHESTER, N.Y. —`) or a caps run-in headline at
-     the start of a paragraph (`RIT RECEIVES GRANT -- J. R. Smith, ...`).
+  1. Right after a dateline (`ROCHESTER, N.Y. —`).
   2. Otherwise, the first paragraph whose first line is **indented** relative to
      the line below it, by about 3–15 typewriter characters. This is the usual
      layout of 1960s releases. It's measured line to line, so tilted photos
@@ -81,11 +80,14 @@ it would put the page on the public internet.
 * **Language**: pages are read as English. A page switches to another language
   only when that language clearly dominates the text. A weak hint of another
   language keeps English and flags the row.
-* **First five words**: all leading articles are skipped, in the body's language,
-  including stacked and elided ones (`The`, `Los`, `Die`, `L'université` → `université`).
-  Surrounding quotes and punctuation are stripped. Abbreviation periods (`Dr.`,
-  `U.S.`) and internal apostrophes and hyphens are kept. A word split across a
-  line break (`uni-`/`versity`) is joined and flagged.
+* **First five words**: kept **exactly as printed**, punctuation included
+  (`Smith,` `(R.I.T.)` `"Winter`), counting whitespace-separated words. A lone
+  dash isn't a word, and a dash typed with no spaces stays attached
+  (`GRANT---J.`). All leading articles are skipped in the body's language,
+  including stacked and elided ones (`The`, `Los`, `L'université`), and the next
+  word is capitalized: "A special showing" becomes `Special showing`. A caps
+  run-in headline (`ACME GIVES COLLEGE GRANT---J. R.`) counts as part of the text.
+  A word split across a line break (`uni-`/`versity`) is joined and flagged.
 * **Release date**: only the header and dateline are searched, never the body.
   A date next to a release cue ("For release:", "Embargoed until") wins. Otherwise
   the dateline's date is used, otherwise the header's date. Other header dates,
@@ -99,10 +101,11 @@ No OCR is perfect on phone photos. Instead of guessing, each page is read by
 
 A field is left unflagged only when **all** of these hold:
 
-1. Both engines read the field **character for character the same**. The only
-   difference allowed is a period: EasyOCR often drops it after initials (`J`
-   vs `J.`), so the period rests on Tesseract's confidence alone. For dates,
-   both must also parse to the same calendar date.
+1. Both engines read the same words with **identical letters and digits**,
+   capitals included. EasyOCR may *omit* punctuation that Tesseract read (it often
+   drops commas and periods), but if it adds or changes a mark the row is flagged.
+   Every printed mark therefore also has to pass Tesseract's confidence check.
+   For dates, both must also parse to the same calendar date.
 2. Every Tesseract word confidence is ≥ 90. EasyOCR scores short words badly even
    when it reads them right, so its floor is lower (30) and only catches reads it
    was itself unsure of. Agreement is the main check.

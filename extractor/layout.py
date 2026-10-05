@@ -5,7 +5,7 @@ import difflib
 import re
 from dataclasses import dataclass, field
 
-from .models import Line
+from .models import Line, Word
 from .words import APOSTROPHES, clean_word, is_word
 
 DASHES = {"—", "–", "―", "‒", "--", "-", "~", "_", "−"}
@@ -114,14 +114,14 @@ def _is_prose_paragraph(para: list[Line], g: _Geometry) -> bool:
     return para[0].box[2] >= right - 0.2 * g.width
 
 
-def _looks_like_dateline_prefix(prefix: str, para_start: bool) -> bool:
+def _looks_like_dateline_prefix(prefix: str) -> bool:
     if not prefix or len(prefix) > 80 or HEADER_CUE.search(prefix) or NON_BODY.search(prefix):
         return False
     first = re.sub(r"[^\w]", "", prefix.split()[0])
     caps_city = len(first) >= 3 and first.isalpha() and first.isupper()
-    # "ROCHESTER, N.Y." / "ROCHESTER" / "NEW YORK" anywhere; a longer caps run-in
-    # ("ACME GIVES COLLEGE GRANT --") only where a paragraph starts.
-    shaped = "," in prefix or len(prefix.split()) <= 2 or (para_start and _all_caps(prefix.split()))
+    # "ROCHESTER, N.Y." / "ROCHESTER" / "NEW YORK". A longer caps run-in such as
+    # "ACME GIVES COLLEGE GRANT --" is a headline that is part of the text, not a dateline.
+    shaped = "," in prefix or len(prefix.split()) <= 2
     return (caps_city and shaped) or bool(_TITLE_CITY_COMMA.match(prefix + " "))
 
 
@@ -136,7 +136,7 @@ def find_body_start(lines: list[Line]) -> BodyStart | None:
             if tok not in DASHES or k == 0:
                 continue
             prefix = " ".join(toks[:k])
-            if not _looks_like_dateline_prefix(prefix, starts[i]):
+            if not _looks_like_dateline_prefix(prefix):
                 break
             same_line = [t for t in toks[k + 1:] if is_word(t)]
             if len(same_line) >= 3 and _lowercase_tokens(same_line) == 0:
@@ -182,32 +182,50 @@ class BodyWord:
     box: tuple[int, int, int, int] | None = None
 
 
+def _rejoin_glued(words: list[Word]) -> list[Word]:
+    """Re-merge pieces printed with no space between them (dashes split off for layout
+    analysis, e.g. 'GRANT' '---' 'J.' back into 'GRANT---J.')."""
+    out: list[Word] = []
+    for w in words:
+        if out:
+            p = out[-1]
+            char_w = (p.box[2] - p.box[0]) / max(len(p.text), 1)
+            if w.box[0] - p.box[2] < 0.25 * char_w:
+                out[-1] = Word(p.text + w.text, min(p.conf, w.conf),
+                               (p.box[0], min(p.box[1], w.box[1]), w.box[2], max(p.box[3], w.box[3])))
+                continue
+        out.append(w)
+    return out
+
+
 def body_words(lines: list[Line], start: BodyStart, limit: int = 40) -> list[BodyWord]:
-    """Cleaned words from the body start onward, joining words hyphenated across lines."""
+    """Words from the body start onward, exactly as printed (punctuation kept), joining
+    words hyphenated across lines. Free-standing punctuation (a lone dash) isn't a word."""
     out: list[BodyWord] = []
-    li, wi = start.line, start.word
-    while li < len(lines) and len(out) < limit:
-        words = lines[li].words
+    rows = [_rejoin_glued(ln.words[start.word:] if i == start.line else ln.words) for i, ln in enumerate(lines)]
+    li, wi = start.line, 0
+    while li < len(rows) and len(out) < limit:
+        words = rows[li]
         while wi < len(words) and len(out) < limit:
             w = words[wi]
             last_on_line = wi == len(words) - 1
-            if last_on_line and w.text.endswith("-") and len(w.text) > 1 and li + 1 < len(lines) and lines[li + 1].words:
-                nxt = lines[li + 1].words[0]
+            if last_on_line and w.text.endswith("-") and len(w.text) > 1 and li + 1 < len(rows) and rows[li + 1]:
+                nxt = rows[li + 1][0]
                 joined = w.text[:-1] + nxt.text
-                note = f"'{w.text} {nxt.text}' was hyphenated across a line break; joined as '{clean_word(joined)}'"
-                out.append(BodyWord(clean_word(joined), min(w.conf, nxt.conf), note, li + 1, nxt.box))
+                note = f"'{w.text} {nxt.text}' was hyphenated across a line break; joined as '{joined}'"
+                out.append(BodyWord(joined, min(w.conf, nxt.conf), note, li + 1, nxt.box))
                 li, wi = li + 1, 1
-                words = lines[li].words
+                words = rows[li]
                 continue
             if w.text[-1:] in APOSTROPHES and len(w.text) > 1 and not last_on_line:
                 # Elided forms never stand alone: OCR spacing "qu' une" means "qu'une".
                 nxt = words[wi + 1]
-                out.append(BodyWord(clean_word(w.text + nxt.text), min(w.conf, nxt.conf), None, li,
+                out.append(BodyWord(w.text + nxt.text, min(w.conf, nxt.conf), None, li,
                                     (w.box[0], min(w.box[1], nxt.box[1]), nxt.box[2], max(w.box[3], nxt.box[3]))))
                 wi += 2
                 continue
-            if is_word(w.text) and clean_word(w.text):
-                out.append(BodyWord(clean_word(w.text), w.conf, None, li, w.box))
+            if is_word(w.text):
+                out.append(BodyWord(w.text, w.conf, None, li, w.box))
             wi += 1
         li, wi = li + 1, 0
     return out

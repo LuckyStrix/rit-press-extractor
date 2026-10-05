@@ -184,18 +184,26 @@ def test_indented_first_line_full_of_names():
     start = find_body_start(lines)
     assert lines[start.line].words[start.word].text == "John" and start.flags == []
     words = body_words(lines, start)
-    assert [w.text for w in words][:3] == ["John", "Q.", "Public"]
+    assert [w.text for w in words][:3] == ["John", "Q.", "Public,"]  # punctuation kept as printed
 
 
-def test_caps_run_in_headline_before_dash():
-    # 0007: "ACME GIVES COLLEGE GRANT -- J. R. Smith, ..." with no indent.
+def test_caps_run_in_headline_is_part_of_the_text():
+    # 0007: "ACME GIVES COLLEGE GRANT---J. R. Smith, ..." counts from the headline.
     lines = layout_page([
         (100, 240, "THE NEWS SERVICE January 10, 1969 Contact: Jane Doe"),
-        (100, 650, "ACME GIVES COLLEGE GRANT -- J. R. Smith, (title), regional manager"),
+        (100, 650, "ACME GIVES COLLEGE GRANT---J. R. Smith, (title), regional manager"),
         *BODY,
     ])
     start = find_body_start(lines)
-    assert lines[start.line].words[start.word].text == "J." and start.flags == []
+    assert lines[start.line].words[start.word].text == "ACME"
+    words = [w.text for w in body_words(lines, start)][:5]
+    assert words == ["ACME", "GIVES", "COLLEGE", "GRANT---J.", "R."]  # glued dash stays glued
+
+
+def test_rochester_dateline_still_skipped():
+    lines = layout_page([(100, 650, "ROCHESTER, N.Y. -- The college won a large grant from the state today."), *BODY])
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "The"
 
 
 def test_two_line_first_paragraph_with_short_last_line():
@@ -224,6 +232,33 @@ def test_keyword_checks_use_word_boundaries():
 
 # --- consensus -------------------------------------------------------------
 
+def test_article_removal_capitalizes_and_carries_quote():
+    from extractor.extract import first_words
+
+    words = [BodyWord(t, 95) for t in ['"A', "special", "showing", "of", '"Winter', "in"]]
+    first, _ = first_words(words, "en")
+    assert [w.text for w in first] == ['"Special', "showing", "of", '"Winter', "in"]
+
+
+def test_no_capitalization_without_article():
+    from extractor.extract import first_words
+
+    first, _ = first_words([BodyWord(t, 95) for t in ["iPhone", "sales", "rose", "by", "ten"]], "en")
+    assert first[0].text == "iPhone"
+
+
+def test_punctuation_rules_between_engines():
+    def agree(t, e):
+        a = EngineReading("tesseract", None, [BodyWord(x, 95) for x in t.split()])
+        b = EngineReading("easyocr", None, [BodyWord(x, 95) for x in e.split()])
+        return reconcile_words([a, b]).reasons == []
+
+    assert agree("John Smith, (R.I.T.) chairman", "John Smith (RIT) chairman")  # EasyOCR omitted marks
+    assert not agree("John Smith, chairman", "John Smith; chairman")  # different mark
+    assert not agree("John Smith chairman", "John Smith, chairman")  # EasyOCR added a mark
+    assert not agree("Will", "will")  # case matters
+
+
 def test_disagreement_zeroes_confidence():
     a = EngineReading("tesseract", None, [BodyWord("college", 95)])
     b = EngineReading("easyocr", None, [BodyWord("co1lege", 95)])
@@ -231,7 +266,7 @@ def test_disagreement_zeroes_confidence():
     assert r.confidence == 0 and "disagree" in r.reasons[0]
 
 
-def test_period_only_difference_is_agreement():
+def test_period_only_difference_is_agreement():  # still true under the punctuation rules
     a = EngineReading("tesseract", None, [BodyWord("J.", 95), BodyWord("Smith", 95)])
     b = EngineReading("easyocr", None, [BodyWord("J", 95), BodyWord("Smith", 95)])
     r = reconcile_words([a, b])

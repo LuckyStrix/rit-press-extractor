@@ -43,7 +43,7 @@ SPECS = [
         "ROCHESTER, N.Y. -- A team of photography students from the School of "
         "Photographic Arts and Sciences has won three national awards, the "
         "college announced today. The students will travel to New York City.",
-        "1979-10-12", "team of photography students from",
+        "1979-10-12", "Team of photography students from",
     ),
     Spec(
         "french",
@@ -53,7 +53,7 @@ SPECS = [
         "ROCHESTER, N.Y. -- L'université a annoncé aujourd'hui qu'une délégation "
         "de professeurs se rendra à Montréal pour une conférence sur la "
         "technologie et les arts graphiques dans le cadre d'un échange.",
-        "1992-03-14", "université a annoncé aujourd'hui qu'une", lang="fr",
+        "1992-03-14", "Université a annoncé aujourd'hui qu'une", lang="fr",
     ),
     Spec(
         "numeric_emdash",
@@ -61,7 +61,7 @@ SPECS = [
         "Library Exhibit Shows Rare Books",
         "ROCHESTER, N.Y. — An exhibit of rare books from the Cary Collection "
         "opens next week in Wallace Memorial Library and runs through June.",
-        "1982-05-14", "exhibit of rare books from", must_flag=True,
+        "1982-05-14", "Exhibit of rare books from", must_flag=True,
     ),
     Spec(
         "no_dateline",

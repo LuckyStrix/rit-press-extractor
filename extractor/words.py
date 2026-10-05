@@ -94,21 +94,37 @@ def is_word(token: str) -> bool:
 
 
 def strip_leading_articles(words: list[str], lang: str | None) -> tuple[list[str], list[str]]:
-    """Remove every leading article (stacked or elided). Returns (remaining words, removed)."""
+    """Remove every leading article (stacked or elided), keeping words as printed otherwise.
+    Punctuation before a removed article moves onto the next word ('"The Show' -> '"Show').
+    Returns (remaining words, removed)."""
     langs = [lang] if lang else list(ARTICLES)
     articles = set().union(*(ARTICLES.get(lg, set()) for lg in langs))
     elided = set().union(*(set(ELIDED.get(lg, ())) for lg in langs))
     words, removed = list(words), []
     while words:
         w = words[0]
-        low = w.lower()
-        if low in articles:
+        if w.lower() in articles:  # covers Dutch "'t", which starts with an apostrophe
             removed.append(words.pop(0))
             continue
-        m = re.match(rf"^(\w+)[{APOSTROPHES}](\w.*)$", w)
+        lead = re.match(r"^[^\w]*", w).group(0)
+        core = w[len(lead):]
+        if core.lower() in articles:
+            removed.append(words.pop(0))
+            if lead and words:
+                words[0] = lead + words[0]
+            continue
+        m = re.match(rf"^(\w+)[{APOSTROPHES}](\w.*)$", core)
         if m and m.group(1).lower() in elided:
-            removed.append(m.group(1) + w[len(m.group(1))])
-            words[0] = m.group(2)
+            removed.append(m.group(1) + core[len(m.group(1))])
+            words[0] = lead + m.group(2)
             continue
         break
     return words, removed
+
+
+def capitalize_first(word: str) -> str:
+    """Upper-case the first letter, leaving any leading punctuation alone ('"special' -> '"Special')."""
+    for i, ch in enumerate(word):
+        if ch.isalpha():
+            return word[:i] + ch.upper() + word[i + 1:]
+    return word

@@ -1,12 +1,13 @@
 """Derive the two output fields from one engine's lines, then reconcile the engines."""
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .dates import DateFound, pick_release_date
 from .layout import BodyStart, BodyWord, align_body_start, body_words, find_body_start
 from .models import Line
-from .words import strip_leading_articles
+from .words import capitalize_first, strip_leading_articles
 
 N_WORDS = 5
 # A field is only "verified" if the engines agree character-for-character AND every word
@@ -58,9 +59,12 @@ def first_words(words: list[BodyWord], lang: str | None) -> tuple[list[BodyWord]
     flags: list[str] = []
     remaining, removed = strip_leading_articles([w.text for w in words], lang)
     kept = words[len(words) - len(remaining):]
-    if kept and remaining and kept[0].text != remaining[0]:  # elided article was split off
-        k = kept[0]
-        kept[0] = BodyWord(remaining[0], k.conf, k.note, k.line, k.box)
+    if kept and remaining:
+        # After dropping an article the next word starts the phrase: "A special" -> "Special".
+        first_text = capitalize_first(remaining[0]) if removed else remaining[0]
+        if kept[0].text != first_text:
+            k = kept[0]
+            kept[0] = BodyWord(first_text, k.conf, k.note, k.line, k.box)
     if removed and lang is None:
         flags.append(f"language unknown; removed leading word(s) {removed} as articles")
     first = kept[:N_WORDS]
@@ -121,6 +125,20 @@ def reconcile_date(readings: list[EngineReading]) -> FieldResult:
     return FieldResult(d.iso, d.min_conf if agree else 0.0, reasons)
 
 
+def _same_words(primary: list[str], other: list[str]) -> bool:
+    """Letters and digits must match exactly (case included). The other engine may omit
+    punctuation the primary read (EasyOCR often drops commas and periods) but not add or
+    change any, so every printed mark still rests on Tesseract's confidence check."""
+    if len(primary) != len(other):
+        return False
+    for p, o in zip(primary, other):
+        if _alnum(p) != _alnum(o):
+            return False
+        if Counter(c for c in o if not c.isalnum()) - Counter(c for c in p if not c.isalnum()):
+            return False
+    return True
+
+
 def reconcile_words(readings: list[EngineReading]) -> FieldResult:
     reasons = _merge_flags([(r.engine, r.word_flags) for r in readings])
     primary = next((r for r in readings if r.words), readings[0])
@@ -134,9 +152,7 @@ def reconcile_words(readings: list[EngineReading]) -> FieldResult:
         if r is primary:
             continue
         other = " ".join(w.text for w in r.words)
-        # EasyOCR often drops a period ("J" for "J."); letters must still match exactly,
-        # and the period rests on Tesseract's own confidence check.
-        if other.replace(".", "") != value.replace(".", ""):
+        if not _same_words([w.text for w in primary.words], [w.text for w in r.words]):
             reasons.append(f"engines disagree on first words: {primary.engine} '{value}' vs {r.engine} '{other}'")
             agree = False
     for r in readings:
