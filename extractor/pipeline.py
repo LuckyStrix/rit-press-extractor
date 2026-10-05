@@ -6,11 +6,19 @@ from dataclasses import asdict, dataclass
 from PIL import Image
 
 from . import ocr
+from .reread import regions_from, reread
 from .extract import read_fields, reconcile_date, reconcile_words
 from .preprocess import flatten_page, normalize_size
 from .words import LANG_TO_TESS, detect_language
 
 LOW_RES_WIDTH = 1500
+
+
+@dataclass(frozen=True)
+class Options:
+    reread: bool = True  # second, focused read of the date and opening words
+    best_model: bool = False  # Tesseract "best" models (setup --tess-best)
+    multipass: bool = False  # 3 differently cleaned Tesseract passes per field, majority vote
 
 
 @dataclass
@@ -30,7 +38,8 @@ class Row:
     review_reasons: str
 
 
-def process_page(img: Image.Image, file: str, page: int, item_number: str = "", force_lang: str | None = None) -> Row:
+def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
+                 force_lang: str | None = None, opts: Options = Options()) -> Row:
     reasons: list[str] = []
     flat, _ = flatten_page(img)
     rotate, script = ocr.tesseract_osd(flat)
@@ -43,7 +52,10 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
     if script and script != "Latin" and script not in ocr.SCRIPT_TO_TESS:
         reasons.append(f"unsupported script '{script}'; read as Latin")
     tess_lang = force_lang or ocr.SCRIPT_TO_TESS.get(script or "Latin", "eng")
-    lines = ocr.tesseract_lines(page_img, tess_lang)
+    best = opts.best_model
+    if best and not ocr.best_model_available(tess_lang):
+        reasons.append(f"best model for '{tess_lang}' not installed (setup --tess-best); used standard model")
+    lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
     # Assume English (nearly every release is); switch only when another language clearly wins.
     detected, margin = detect_language(" ".join(ln.text for ln in lines))
     lang = "en"
@@ -53,7 +65,7 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
         lang = detected
         if tess_lang == "eng":
             tess_lang = LANG_TO_TESS[lang]
-            lines = ocr.tesseract_lines(page_img, tess_lang)  # re-read with the right language model
+            lines = ocr.tesseract_lines(page_img, tess_lang, best=best)  # re-read with the right language model
     else:
         reasons.append(f"text may be non-English (weak signal for '{detected}'); read as English")
 
@@ -67,6 +79,9 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
         except FileNotFoundError:
             reasons.append(f"EasyOCR model for {easy_langs} not installed (run: python -m extractor setup "
                            f"--langs {' '.join(easy_langs)}); single-engine result")
+
+    if opts.reread and readings[0].start is not None:
+        _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts)
 
     date = reconcile_date(readings)
     words = reconcile_words(readings)
@@ -85,6 +100,24 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "", 
         needs_review="YES" if reasons else "no",
         review_reasons=" | ".join(reasons),
     )
+
+
+def _apply_reread(readings, lines, page_img, lang, tess_lang, easy_langs, opts: Options) -> None:
+    """Replace each engine's full-page fields with its focused re-read where that succeeded.
+    Crop positions come from Tesseract's layout, so layout flags stay with that engine."""
+    regions = regions_from(lines, readings[0])
+    for r in readings:
+        rr = reread(r.engine, page_img, regions, lang, tess_lang, easy_langs, opts.best_model, opts.multipass)
+        primary = r is readings[0]
+        if rr.date is not None:
+            context = [f for f in r.date_flags if not (r.date and f in r.date.flags)] if primary else []
+            r.date = rr.date
+            r.date_flags = context + list(rr.date.flags)
+        if rr.words is not None:
+            r.words = rr.words
+            r.word_flags = (list(r.start.flags) if primary else []) + rr.word_flags
+        r.date_flags += rr.date_notes
+        r.word_flags += rr.word_notes
 
 
 def failed_row(file: str, item_number: str, reason: str) -> Row:

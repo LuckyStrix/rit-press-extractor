@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .dates import DateFound, pick_release_date
-from .layout import BodyWord, align_body_start, body_words, find_body_start
+from .layout import BodyStart, BodyWord, align_body_start, body_words, find_body_start
 from .models import Line
 from .words import strip_leading_articles
 
@@ -23,6 +23,7 @@ class EngineReading:
     date_flags: list[str] = field(default_factory=list)
     word_flags: list[str] = field(default_factory=list)
     anchor: tuple[Line, int, Line | None] | None = None  # body line, word index, dateline line
+    start: BodyStart | None = None
 
 
 def read_fields(engine: str, lines: list[Line], lang: str | None,
@@ -46,19 +47,27 @@ def read_fields(engine: str, lines: list[Line], lang: str | None,
     date, dflags = pick_release_date(lines, header_end, dateline)
     date_flags.extend(dflags)
 
-    words = body_words(lines, start)
+    first, wflags = first_words(body_words(lines, start), lang)
+    word_flags.extend(wflags)
+    body_anchor = (lines[start.line], start.word, lines[start.dateline] if start.dateline is not None else None)
+    return EngineReading(engine, date, first, date_flags, word_flags, body_anchor, start)
+
+
+def first_words(words: list[BodyWord], lang: str | None) -> tuple[list[BodyWord], list[str]]:
+    """Drop leading articles and keep the first N_WORDS. Returns (words, flags)."""
+    flags: list[str] = []
     remaining, removed = strip_leading_articles([w.text for w in words], lang)
     kept = words[len(words) - len(remaining):]
     if kept and remaining and kept[0].text != remaining[0]:  # elided article was split off
-        kept[0] = BodyWord(remaining[0], kept[0].conf, kept[0].note)
+        k = kept[0]
+        kept[0] = BodyWord(remaining[0], k.conf, k.note, k.line, k.box)
     if removed and lang is None:
-        word_flags.append(f"language unknown; removed leading word(s) {removed} as articles")
+        flags.append(f"language unknown; removed leading word(s) {removed} as articles")
     first = kept[:N_WORDS]
     if len(first) < N_WORDS:
-        word_flags.append(f"only {len(first)} body word(s) found")
-    word_flags.extend(w.note for w in first if w.note)
-    body_anchor = (lines[start.line], start.word, lines[start.dateline] if start.dateline is not None else None)
-    return EngineReading(engine, date, first, date_flags, word_flags, body_anchor)
+        flags.append(f"only {len(first)} body word(s) found")
+    flags.extend(w.note for w in first if w.note)
+    return first, flags
 
 
 @dataclass

@@ -95,8 +95,16 @@ it would put the page on the public internet.
 ## What "verified" means
 
 No OCR is perfect on phone photos. Instead of guessing, each page is read by
-**two independent OCR engines**, Tesseract (LSTM) and EasyOCR (CRNN). A field is
-left unflagged only when **all** of these hold:
+**two independent OCR engines**, Tesseract (LSTM) and EasyOCR (CRNN).
+
+Each page is read twice. The full-page pass finds where the date and the opening
+words are. Then each of those rows is cropped, scaled to the text height OCR reads
+best, contrast-boosted, and **re-read** by both engines in single-line mode. Small
+marks like periods and apostrophes get lost when a whole page is shrunk to fit an
+engine, but survive at this scale. The re-read values are used wherever a re-read
+succeeds (turn this off with `--no-reread`).
+
+A field is left unflagged only when **all** of these hold:
 
 1. Both engines read the field **character for character the same**. The only
    difference allowed is a period: EasyOCR often drops it after initials (`J`
@@ -133,6 +141,35 @@ sample of unflagged rows too, especially early on.
   full copies of the releases, so keep them only as long as your project needs
   and handle them under your library's digitization policy. This is not legal
   advice; check with RIT's copyright or library staff if in doubt.
+
+## Measuring accuracy (answer key)
+
+The tool can only flag what it doubts. To know how often it's actually right,
+build an answer key from the paper originals:
+
+```bash
+.venv/bin/python -m extractor evaluate data/results.csv data/truth.csv --template   # blank key
+# fill in release_date and first_five_words for each file, from the paper, not the tool
+.venv/bin/python -m extractor evaluate data/results.csv data/truth.csv
+```
+
+The report gives counts per field: verified and right, **verified but wrong**,
+flagged and wrong (caught), flagged but right (needless review), and no answer.
+"Verified but wrong" must be 0 before you trust unflagged rows. Add `--show` to
+print the wrong values. Keep the key in `data/` so it stays private.
+
+## Optional OCR settings
+
+These are off by default and planned for evaluation against the answer key:
+
+| flag | what it does | cost |
+|---|---|---|
+| `--best-model` | Tesseract's float "best" models instead of the integer "fast" ones Debian ships. Run `setup --tess-best` once to download them (~15 MB for English). | slower full-page pass |
+| `--multipass` | reads each field with three differently cleaned Tesseract passes (Sauvola, Otsu, no contrast boost) and keeps the majority. Disagreement between passes is flagged. | about 2 more seconds per field |
+| `--no-reread` | turns off the focused second read (for comparison) | — |
+
+They work with both `process` and `serve`. Turn one on by default only if the
+answer key shows it helps.
 
 ## Diagnosing a bad result
 

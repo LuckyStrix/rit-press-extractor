@@ -33,11 +33,12 @@ SECURITY_HEADERS = {
 
 
 class CaptureStore:
-    def __init__(self, data_dir: Path, csv_path: Path):
+    def __init__(self, data_dir: Path, csv_path: Path, opts=None):
         self.captures = data_dir / "captures"
         self.captures.mkdir(parents=True, exist_ok=True)
         os.chmod(self.captures, 0o700)
         self.csv = csv_path
+        self.opts = opts
         self.jobs: queue.Queue[tuple[Path, str]] = queue.Queue()
         self.lock = threading.Lock()
 
@@ -62,13 +63,13 @@ class CaptureStore:
     def worker(self) -> None:
         from .loader import load_pages
         from .output import append_rows
-        from .pipeline import failed_row, process_page
+        from .pipeline import Options, failed_row, process_page
 
         while True:
             path, item = self.jobs.get()
             try:
                 for page_no, img in load_pages(path):
-                    row = process_page(img, path.name, page_no, item)
+                    row = process_page(img, path.name, page_no, item, opts=self.opts or Options())
                     append_rows(self.csv, [row])
                     print(f"  [{'REVIEW' if row.needs_review == 'YES' else 'ok':6}] #{item}: "
                           f"{row.release_date or '-'} | {row.first_five_words or '-'}", flush=True)
@@ -178,8 +179,8 @@ def make_handler(store: CaptureStore):
     return Handler
 
 
-def serve(port: int, data_dir: Path, csv_path: Path) -> None:
-    store = CaptureStore(data_dir, csv_path)
+def serve(port: int, data_dir: Path, csv_path: Path, opts=None) -> None:
+    store = CaptureStore(data_dir, csv_path, opts)
     threading.Thread(target=store.worker, daemon=True).start()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store))
     print(f"Capture server on http://127.0.0.1:{port} (localhost only).")

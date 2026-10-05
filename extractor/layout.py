@@ -178,6 +178,8 @@ class BodyWord:
     text: str
     conf: float
     note: str | None = None  # set when the word needed interpretation
+    line: int = 0  # index of the (last) line the word sits on
+    box: tuple[int, int, int, int] | None = None
 
 
 def body_words(lines: list[Line], start: BodyStart, limit: int = 40) -> list[BodyWord]:
@@ -193,18 +195,19 @@ def body_words(lines: list[Line], start: BodyStart, limit: int = 40) -> list[Bod
                 nxt = lines[li + 1].words[0]
                 joined = w.text[:-1] + nxt.text
                 note = f"'{w.text} {nxt.text}' was hyphenated across a line break; joined as '{clean_word(joined)}'"
-                out.append(BodyWord(clean_word(joined), min(w.conf, nxt.conf), note))
+                out.append(BodyWord(clean_word(joined), min(w.conf, nxt.conf), note, li + 1, nxt.box))
                 li, wi = li + 1, 1
                 words = lines[li].words
                 continue
             if w.text[-1:] in APOSTROPHES and len(w.text) > 1 and not last_on_line:
                 # Elided forms never stand alone: OCR spacing "qu' une" means "qu'une".
                 nxt = words[wi + 1]
-                out.append(BodyWord(clean_word(w.text + nxt.text), min(w.conf, nxt.conf)))
+                out.append(BodyWord(clean_word(w.text + nxt.text), min(w.conf, nxt.conf), None, li,
+                                    (w.box[0], min(w.box[1], nxt.box[1]), nxt.box[2], max(w.box[3], nxt.box[3]))))
                 wi += 2
                 continue
             if is_word(w.text) and clean_word(w.text):
-                out.append(BodyWord(clean_word(w.text), w.conf))
+                out.append(BodyWord(clean_word(w.text), w.conf, None, li, w.box))
             wi += 1
         li, wi = li + 1, 0
     return out

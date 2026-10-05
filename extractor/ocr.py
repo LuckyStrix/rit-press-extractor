@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 import subprocess
 import warnings
@@ -15,6 +16,7 @@ from PIL import Image
 from .models import Line, Word, merge_rows, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+TESSDATA_BEST = MODELS_DIR / "tessdata_best"  # optional, filled by `setup --tess-best`
 
 # Harmless PyTorch notices from EasyOCR on a CPU-only machine; they don't affect results.
 warnings.filterwarnings("ignore", message=r".*pin_memory.*no accelerator", category=UserWarning)
@@ -81,10 +83,17 @@ def tesseract_osd(img: Image.Image) -> tuple[int, str | None]:
     return rot, script.group(1) if sure else None
 
 
-def tesseract_lines(img: Image.Image, lang: str) -> list[Line]:
+def best_model_available(lang: str) -> bool:
+    return all((TESSDATA_BEST / f"{part}.traineddata").exists() for part in lang.split("+"))
+
+
+def tesseract_lines(img: Image.Image, lang: str, psm: int = 3, threshold: int = 2, best: bool = False) -> list[Line]:
+    """threshold: 2 = Sauvola (copes with uneven phone lighting), 0 = Otsu.
+    best: use the slower, more accurate models in TESSDATA_BEST if present."""
+    extra = ["--tessdata-dir", str(TESSDATA_BEST)] if best and best_model_available(lang) else []
     tsv = _run_tesseract(img, [
-        "-l", lang, "--psm", "3", "--dpi", "300",
-        "-c", "thresholding_method=2",  # Sauvola: copes with uneven phone lighting
+        *extra, "-l", lang, "--psm", str(psm), "--dpi", "300",
+        "-c", f"thresholding_method={threshold}",
         "tsv",
     ])
     lines: dict[tuple[int, int, int], Line] = {}
@@ -108,9 +117,12 @@ def tesseract_lines(img: Image.Image, lang: str) -> list[Line]:
 @lru_cache(maxsize=4)
 def _easy_reader(langs: tuple[str, ...]):
     import easyocr  # heavy import; only load when needed
+    import torch
 
+    # Use an NVIDIA GPU when present (much faster); PRX_GPU=0 forces CPU.
+    gpu = torch.cuda.is_available() and os.environ.get("PRX_GPU", "1") != "0"
     return easyocr.Reader(
-        list(langs), gpu=False, verbose=False,
+        list(langs), gpu=gpu, verbose=False,
         model_storage_directory=str(MODELS_DIR), download_enabled=False,
     )
 
@@ -127,8 +139,12 @@ def easy_langs_for(tess_lang: str) -> tuple[str, ...] | None:
     return tuple(dict.fromkeys(codes))
 
 
-def easyocr_lines(img: Image.Image, langs: tuple[str, ...]) -> list[Line]:
-    results = _easy_reader(langs).readtext(np.array(img), detail=1, paragraph=False)
+def easyocr_lines(img: Image.Image, langs: tuple[str, ...], beam: bool = False) -> list[Line]:
+    """beam: beam-search decoding (slower; better on small punctuation). Used for field crops."""
+    results = _easy_reader(langs).readtext(
+        np.array(img), detail=1, paragraph=False,
+        decoder="beamsearch" if beam else "greedy", beamWidth=5,
+    )
     segments = []
     for pts, text, conf in results:
         xs, ys = [p[0] for p in pts], [p[1] for p in pts]

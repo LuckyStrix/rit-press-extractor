@@ -69,6 +69,7 @@ class DateFound:
     line_index: int
     min_conf: float
     flags: list[str] = field(default_factory=list)
+    box: tuple[int, int, int, int] | None = None  # where the date sits on the page
 
 
 def _year(raw: str, flags: list[str]) -> int:
@@ -115,7 +116,9 @@ def parse_dates_in_line(line: Line, index: int) -> list[DateFound]:
             if not EARLIEST_YEAR <= year <= dt.date.today().year:
                 flags.append(f"year {year} is outside the plausible range")
             words = line.words_in_span(m.start(), m.end())
-            found.append(DateFound(iso, m.group(0), index, min(w.conf for w in words), flags))
+            box = (min(w.box[0] for w in words), min(w.box[1] for w in words),
+                   max(w.box[2] for w in words), max(w.box[3] for w in words))
+            found.append(DateFound(iso, m.group(0), index, min(w.conf for w in words), flags, box))
             taken.append((m.start(), m.end()))
     return sorted(found, key=lambda d: text.find(d.printed))
 
