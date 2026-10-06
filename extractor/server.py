@@ -111,7 +111,11 @@ def make_handler(store: CaptureStore):
                 return
             path = urlparse(self.path).path
             if path == "/":
-                self._send(HTTPStatus.OK, (WEB_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
+                try:
+                    page = (WEB_DIR / "index.html").read_bytes()
+                except OSError:
+                    return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+                self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
             elif path == "/api/next":
                 self._json(HTTPStatus.OK, {"next": store.next_number(), "pending": store.jobs.qsize()})
             else:

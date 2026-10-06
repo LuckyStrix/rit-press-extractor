@@ -29,6 +29,7 @@ def append_rows(path: Path, rows: list[Row]) -> None:
                 if next(csv.reader(f), None) != COLUMNS:
                     raise ValueError(f"{path} has different columns; choose a new output file with -o")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        os.chmod(path, 0o600)
         with os.fdopen(fd, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMNS)
             if new:

@@ -25,7 +25,8 @@ BUCKETS = [
 def make_template(results: Path, truth: Path) -> int:
     if truth.exists():
         raise SystemExit(f"{truth} already exists; not overwriting it")
-    files = list(dict.fromkeys(r["file"] for r in csv.DictReader(open(results, encoding="utf-8"))))
+    with open(results, encoding="utf-8") as f:
+        files = list(dict.fromkeys(r["file"] for r in csv.DictReader(f)))
     with open(truth, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(TRUTH_COLUMNS)
@@ -77,9 +78,11 @@ def masked_diff(got: str, want: str) -> list[str]:
 
 
 def evaluate(results: Path, truth: Path, show: bool = False, diff: bool = False) -> int:
-    rows = {r["file"]: r for r in csv.DictReader(open(results, encoding="utf-8"))}  # last row per file wins
-    key = [t for t in csv.DictReader(open(truth, encoding="utf-8"))
-           if t.get("release_date", "").strip() or t.get("first_five_words", "").strip()]
+    with open(results, encoding="utf-8") as f:
+        rows = {r["file"]: r for r in csv.DictReader(f)}  # last row per file wins
+    with open(truth, encoding="utf-8") as f:
+        key = [t for t in csv.DictReader(f)
+               if t.get("release_date", "").strip() or t.get("first_five_words", "").strip()]
     fields = [("release_date", "date_verified", _norm_date), ("first_five_words", "words_verified", _norm_words)]
     tally = {f: {b: [] for b, _ in BUCKETS} for f, _, _ in fields}
     missing_rows = []
