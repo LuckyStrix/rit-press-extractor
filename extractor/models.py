@@ -89,6 +89,9 @@ def merge_rows(lines: list[Line]) -> list[Line]:
             rows.append(Line(list(line.words)))
     for row in rows:
         row.words = trim_edge_noise(row.words)
+    # A row that is just one or two weakly read characters is a speck, not text; left in, it
+    # becomes the "line below" a paragraph's first line and hides the indent.
+    rows = [r for r in rows if not (len(r.text.replace(" ", "")) <= 2 and r.words and max(w.conf for w in r.words) < 60)]
     return sorted((r for r in rows if r.words), key=lambda ln: ln.box[1])
 
 
@@ -103,6 +106,7 @@ def trim_edge_noise(words: list[Word], max_conf: float = 50.0) -> list[Word]:
     for i in range(1, min(len(words), 8)):
         gap = words[i].box[0] - words[i - 1].box[2]
         lead = words[:i]
-        if gap > gap_limit and sum(w.conf for w in lead) / len(lead) < max_conf:
+        tiny = sum(len(w.text) for w in lead) <= 2  # a stray 1-2 character mark, however sure the OCR was
+        if gap > gap_limit and (tiny or sum(w.conf for w in lead) / len(lead) < max_conf):
             return words[i:]
     return words

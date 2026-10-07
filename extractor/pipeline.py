@@ -1,7 +1,7 @@
 """Full per-page pipeline: clean up image -> two OCR engines -> fields -> reconciled row."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from PIL import Image
 
@@ -47,11 +47,24 @@ class Row:
 
 def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
                  force_lang: str | None = None, opts: Options = Options()) -> Row:
+    row = _process_page(img, file, page, item_number, force_lang, opts)
+    if row.needs_review == "YES" and not opts.clean:
+        # Lighting/tilt cleanup hurts some pages and rescues others, so it is only a second
+        # chance for flagged pages. The retry replaces the first result only if it leaves fewer
+        # reasons to review; verification still needs the same engine agreement either way.
+        retry = _process_page(img, file, page, item_number, force_lang, replace(opts, clean=True))
+        if retry.review_reasons.count(" | ") < row.review_reasons.count(" | "):
+            return retry
+    return row
+
+
+def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
+                  force_lang: str | None = None, opts: Options = Options()) -> Row:
     reasons: list[str] = []
     flat, _ = flatten_page(img)
-    rotate, script = ocr.tesseract_osd(flat)
-    if rotate:
-        flat = flat.rotate(-rotate, expand=True)  # OSD reports clockwise degrees to fix
+    # Captures are always shot upright; OSD's rotation guess was wrong on some pages
+    # (typewriter text plus a sideways folder label), so only its script guess is used.
+    _, script = ocr.tesseract_osd(flat)
     if flat.width < LOW_RES_WIDTH:
         reasons.append(f"low-resolution page ({flat.width}px wide); a closer photo would be more reliable")
     if opts.clean:

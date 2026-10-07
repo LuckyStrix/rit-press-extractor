@@ -19,9 +19,7 @@ def mask(text: str) -> str:
 def dump(path: Path, unmasked: bool = False) -> None:
     for page_no, img in load_pages(path):
         flat, found = flatten_page(img)
-        rotate, script = ocr.tesseract_osd(flat)
-        if rotate:
-            flat = flat.rotate(-rotate, expand=True)
+        rotate = 0  # rotation detection is off: captures are always upright
         page = normalize_size(flat)
         lines = ocr.tesseract_lines(page, "eng")
         start = find_body_start(lines)
