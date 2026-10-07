@@ -57,6 +57,18 @@ TESS_TO_EASY = {
 }
 
 
+def check_tesseract() -> None:
+    """Stop with a clear message if Tesseract can't be run, instead of failing every page."""
+    try:
+        subprocess.run([TESSERACT, "--version"], capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(
+            f"Cannot run Tesseract at '{TESSERACT}' ({exc}).\n"
+            "Install it (see the setup guide for your system), or point to it: on Windows run\n"
+            '  setx TESSERACT "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"\n'
+            "with your real install path, then open a new PowerShell window.")
+
+
 def _png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")

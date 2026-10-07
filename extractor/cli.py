@@ -103,6 +103,9 @@ def cmd_process(args) -> int:
     from .loader import find_inputs
     from .output import append_rows
 
+    from . import ocr
+
+    ocr.check_tesseract()
     _init_worker(1)
     ensure_private_dir(DATA_DIR)
     out = Path(args.output)
@@ -172,7 +175,10 @@ def cmd_serve(args) -> int:
     from . import netguard
 
     netguard.enable()
+    from . import ocr
     from .server import serve
+
+    ocr.check_tesseract()
 
     serve(args.port, ensure_private_dir(DATA_DIR), Path(args.output), _options(args))
     return 0
