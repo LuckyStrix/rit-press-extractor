@@ -287,3 +287,20 @@ def align_body_start(lines: list[Line], ref_line: Line, ref_word: int, ref_datel
     target_x = ref_line.words[ref_word].box[0]
     j = min(range(len(lines[i].words)), key=lambda j: abs(lines[i].words[j].box[0] - target_x))
     return BodyStart(i, j, dateline, ["second engine's body start located by position only"])
+
+
+SLUG_MAX_LINES, SLUG_MAX_WORDS = 3, 12
+
+
+def find_slug(lines: list[Line], start: BodyStart) -> str:
+    """The short subject tag or headline set between the header block and the article
+    ("TVR" under the date). Walks up from the body; release cues, dates, contacts and the
+    dateline end it."""
+    out: list[str] = []
+    for i in range(start.line - 1, -1, -1):
+        ln = lines[i]
+        if (len(out) >= SLUG_MAX_LINES or i == start.dateline or len(ln.words) > SLUG_MAX_WORDS
+                or HEADER_CUE.search(ln.text) or NON_BODY.search(ln.text) or parse_dates_in_line(ln, 0)):
+            break
+        out.append(ln.text)
+    return " ".join(reversed(out))

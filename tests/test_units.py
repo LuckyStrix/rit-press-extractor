@@ -248,6 +248,33 @@ def test_all_caps_header_block_is_not_taken_for_the_body():
     assert find_body_start(lines) is None
 
 
+def test_slug_is_the_short_tag_under_the_date():
+    from extractor.layout import find_slug
+
+    lines = layout_page(CAPS_RELEASE)
+    assert find_slug(lines, find_body_start(lines)) == "TVR"
+
+
+def test_slug_is_empty_when_header_ends_at_the_date_or_contact():
+    from extractor.layout import find_slug
+
+    lines = layout_page([CAPS_RELEASE[2], CAPS_RELEASE[3], *CAPS_RELEASE[5:]])
+    assert find_slug(lines, find_body_start(lines)) == ""
+
+
+def test_slug_takes_a_headline_above_the_body_but_not_the_dateline():
+    from extractor.layout import find_slug
+
+    lines = layout_page([
+        (100, 100, "FOR IMMEDIATE RELEASE"), (100, 140, "May 3, 1987"), (100, 180, "Contact: Jane Smith, 475-2400"),
+        (100, 300, "RIT DEDICATES NEW IMAGING SCIENCE BUILDING"),
+        (100, 400, "ROCHESTER, N.Y. -- The Rochester Institute of Technology dedicated its new"),
+        (100, 450, "Center for Imaging Science on Friday, marking the completion of a project"),
+        (100, 500, "that began in 1984. More than 300 guests attended the ceremony."),
+    ])
+    assert find_slug(lines, find_body_start(lines)) == "RIT DEDICATES NEW IMAGING SCIENCE BUILDING"
+
+
 def test_keyword_checks_use_word_boundaries():
     lines = layout_page([
         (100, 100, "January 9, 1969"),

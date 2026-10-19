@@ -6,12 +6,17 @@ from dataclasses import asdict, dataclass, replace
 from PIL import Image
 
 from . import ocr
+from .layout import body_words, find_slug
+from .models import Line
+from .pages import PageSignals, page_signals
+from .listpage import is_list_page
 from .reread import regions_from, reread, reread_trocr
 from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
 from .words import LANG_TO_TESS, detect_language
 
 LOW_RES_WIDTH = 1500
+OPENING_WORDS = 40  # article words kept to match list-page subjects against
 
 
 @dataclass(frozen=True)
@@ -43,23 +48,49 @@ class Row:
     language: str
     needs_review: str
     review_reasons: str
+    # Filled in by the folder pass (list-page subjects, multi-page releases).
+    subject: str = ""
+    subject_verified: str = ""
+    subject_match: str = ""  # how the subject was found: date+text, date, text, none; blank without a list page
+    slug: str = ""  # short subject tag printed under the date, used for matching
+    opening_text: str = ""  # first words of the article, used for matching
+    page_count: int = 1
+    pages: str = ""  # every page of the release, "file p1, file p2"
+    folder: str = ""
+
+
+@dataclass
+class PageResult:
+    """One page as the folder pass needs it: the row, cues for grouping pages into releases,
+    the text used to match list-page subjects, and, for a list page, its OCR lines."""
+    row: Row | None  # None for a list page
+    signals: PageSignals
+    slug: str = ""
+    opening: str = ""
+    list_lines: list[Line] | None = None
 
 
 def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
                  force_lang: str | None = None, opts: Options = Options()) -> Row:
-    row = _process_page(img, file, page, item_number, force_lang, opts)
-    if row.needs_review == "YES" and not opts.clean:
+    return analyze_page(img, file, page, item_number, force_lang, opts, detect_list=False).row
+
+
+def analyze_page(img: Image.Image, file: str, page: int, item_number: str = "",
+                 force_lang: str | None = None, opts: Options = Options(), detect_list: bool = True) -> PageResult:
+    result = _process_page(img, file, page, item_number, force_lang, opts, detect_list)
+    row = result.row
+    if row is not None and row.needs_review == "YES" and not opts.clean:
         # Lighting/tilt cleanup hurts some pages and rescues others, so it is only a second
         # chance for flagged pages. The retry replaces the first result only if it leaves fewer
         # reasons to review; verification still needs the same engine agreement either way.
-        retry = _process_page(img, file, page, item_number, force_lang, replace(opts, clean=True))
-        if retry.review_reasons.count(" | ") < row.review_reasons.count(" | "):
+        retry = _process_page(img, file, page, item_number, force_lang, replace(opts, clean=True), detect_list)
+        if retry.row.review_reasons.count(" | ") < row.review_reasons.count(" | "):
             return retry
-    return row
+    return result
 
 
 def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
-                  force_lang: str | None = None, opts: Options = Options()) -> Row:
+                  force_lang: str | None = None, opts: Options = Options(), detect_list: bool = False) -> PageResult:
     reasons: list[str] = []
     flat, _ = flatten_page(img)
     # Captures are always shot upright; OSD's rotation guess was wrong on some pages
@@ -80,6 +111,9 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     if best and not ocr.best_model_available(tess_lang):
         reasons.append(f"best model for '{tess_lang}' not installed (setup --tess-best); used standard model")
     lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
+    signals = page_signals(lines)
+    if detect_list and is_list_page(lines):
+        return PageResult(None, signals, list_lines=lines)
     # Assume English (nearly every release is); switch only when another language clearly wins.
     detected, margin = detect_language(" ".join(ln.text for ln in lines))
     lang = "en"
@@ -129,7 +163,14 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     words_ok = not reasons and not words.reasons
     reasons += date.reasons + [r for r in words.reasons if r not in date.reasons]
     printed = next((r.date.printed for r in readings if r.date and r.date.iso == date.value), "")
-    return Row(
+    start = readings[0].start
+    if start is not None:
+        slug = find_slug(lines, start)
+        opening = " ".join(w.text for w in body_words(lines, start, OPENING_WORDS))
+    else:  # no body found: the whole page is the best text there is to match on
+        everything = " ".join(w.text for ln in lines for w in ln.words)
+        slug, opening = "", " ".join(everything.split()[:OPENING_WORDS])
+    row = Row(
         file=file, page=page, item_number=item_number,
         release_date=date.value, release_date_as_printed=" ".join(printed.split()),
         first_five_words=words.value,
@@ -138,7 +179,9 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         language=lang,
         needs_review="YES" if reasons else "no",
         review_reasons=" | ".join(reasons),
+        slug=slug, opening_text=opening,
     )
+    return PageResult(row, signals, slug, opening)
 
 
 def _check_start(t_lines, t_start) -> str | None:

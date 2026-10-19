@@ -134,11 +134,10 @@ def _rows(page_no: int, lines: list[Line], month: str | None) -> tuple[list[_Row
         text = ln.text.strip()
         if len(re.sub(r"[\W_]", "", text)) < 3:
             continue
-        conf = min(w.conf for w in ln.words)
         m = _ROW.match(text)
         abbr = _month_of(m["mon"], month) if m else None
         if not m or abbr is None:
-            rows.append(_Row(None, None, None, "", _tidy(text), conf,
+            rows.append(_Row(None, None, None, "", _tidy(text), min(w.conf for w in ln.words),
                              ["no date printed; assumed same day as the entry above"], page_no, i))
             continue
         flags: list[str] = []
@@ -150,7 +149,10 @@ def _rows(page_no: int, lines: list[Line], month: str | None) -> tuple[list[_Row
         elif not m["day"].isdigit():
             flags.append(f"day read as '{m['day']}'; taken as {day}")
         printed = text[: len(text) - len(m["rest"])].strip()
-        rows.append(_Row(abbr, day, m["yr"], printed, _tidy(m["rest"]), conf, flags, page_no, i))
+        # Confidence of the subject's own words; the printed date in front is often garbled.
+        subject_words = ln.words[len(printed.split()):] or ln.words
+        rows.append(_Row(abbr, day, m["yr"], printed, _tidy(m["rest"]), min(w.conf for w in subject_words),
+                         flags, page_no, i))
     return rows, month
 
 
