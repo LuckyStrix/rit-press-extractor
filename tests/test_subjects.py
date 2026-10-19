@@ -1,0 +1,91 @@
+"""Matching list-page subjects to releases: by date first, then by what the release says."""
+import datetime as dt
+
+from extractor.listpage import ListEntry
+from extractor.subjects import Release, match_subjects
+
+D = dt.date
+
+
+def entry(day: int, subject: str, flags=None) -> ListEntry:
+    return ListEntry(D(1970, 11, day), subject, f"Nov. {day}, 1970", 95.0, 0, day, flags or [])
+
+
+def release(key, day, slug="", text="", verified=True) -> Release:
+    return Release(key, D(1970, 11, day) if day else None, verified, slug, text)
+
+
+def test_slug_and_text_confirm_a_lone_same_day_match():
+    entries = [entry(2, "TVR Transportation"), entry(3, "James Baker - Co-op")]
+    res = match_subjects([release("a", 2, "TVR", "A DAY-LONG SYMPOSIUM ON METROPOLITAN TRANSPORTATION")], entries)
+    m = res.matches["a"]
+    assert (m.entry, m.method, m.confident) == (0, "date+text", True)
+    assert res.unmatched_entries == [1]
+
+
+def test_five_releases_on_one_day_are_sorted_by_their_names():
+    names = ["John Ward", "Richard Hill", "Thomas Caiolo", "David Hoppenworth", "Karen Gates"]
+    entries = [entry(2, f"{n} - Co-op") for n in names]
+    # scanned in a different order than listed, and with OCR noise in two names
+    scanned = [("e", "Karen Gates"), ("b", "Richard Hill"), ("d", "David Hoppenwonth"), ("a", "John Ward"),
+               ("c", "Thomas Caiolo")]
+    releases = [release(k, 2, "Co-op", f"{n}, a student in the college, will begin a co-op assignment") for k, n in scanned]
+    res = match_subjects(releases, entries)
+    assert {k: res.matches[k].entry for k, _ in scanned} == {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4}
+    assert all(m.confident and m.method == "date+text" for m in res.matches.values())
+
+
+def test_a_release_with_no_entry_is_unmatched():
+    entries = [entry(2, "John Ward - Co-op")]
+    releases = [release("a", 2, "", "John Ward will begin a co-op assignment"),
+                release("b", 2, "", "Susan Wolf will begin a co-op assignment")]
+    res = match_subjects(releases, entries)
+    assert res.matches["a"].entry == 0 and res.matches["a"].confident
+    assert res.matches["b"].entry is None and res.matches["b"].method == "none"
+
+
+def test_an_entry_with_no_release_is_reported():
+    entries = [entry(2, "John Ward - Co-op"), entry(2, "Susan Wolf - Co-op")]
+    res = match_subjects([release("a", 2, "", "John Ward will begin a co-op")], entries)
+    assert res.matches["a"].entry == 0 and res.unmatched_entries == [1]
+
+
+def test_identical_looking_candidates_are_ambiguous_not_guessed():
+    entries = [entry(9, "Football - Siena"), entry(9, "Football - Union")]
+    res = match_subjects([release("a", 9, "", "Football fans will see the season finale")], entries)
+    m = res.matches["a"]
+    assert m.entry is None and not m.confident and m.method == "date+text" and m.candidates == [0, 1]
+    assert res.unmatched_entries == []  # both are still plausible for it
+
+
+def test_date_alone_matches_but_is_not_confident():
+    res = match_subjects([release("a", 2, "", "Completely different words here")], [entry(2, "John Ward - Co-op")])
+    m = res.matches["a"]
+    assert (m.entry, m.method, m.confident) == (0, "date", False)
+
+
+def test_release_with_an_unreadable_date_matches_on_text_alone_and_is_flagged():
+    entries = [entry(2, "TVR Transportation"), entry(5, "Winter Olympic - NTID")]
+    res = match_subjects([release("a", None, "", "The winter Olympic training program for NTID students", False)], entries)
+    m = res.matches["a"]
+    assert (m.entry, m.method, m.confident) == (1, "text", False)
+
+
+def test_release_whose_date_has_no_entries_falls_back_to_text():
+    entries = [entry(5, "Winter Olympic - NTID")]
+    res = match_subjects([release("a", 8, "", "Winter Olympic training for NTID students")], entries)  # misread day
+    assert res.matches["a"].entry == 0 and res.matches["a"].method == "text" and not res.matches["a"].confident
+
+
+def test_common_tags_do_not_carry_a_match():
+    entries = [entry(9, f"Person{i} Name{i} - Co-op") for i in range(6)]
+    res = match_subjects([release("a", 9, "Co-op", "A co-op student from the college")], entries)
+    assert not res.matches["a"].confident  # only the shared tag matched
+
+
+def test_entry_is_never_given_to_two_releases():
+    entries = [entry(2, "John Ward - Co-op")]
+    releases = [release("a", 2, "", "John Ward co-op"), release("b", 2, "", "John Ward co-op again")]
+    res = match_subjects(releases, entries)
+    assert sum(m.entry is not None for m in res.matches.values()) <= 1
+    assert not any(m.confident for m in res.matches.values())  # two claimants: neither is certain
