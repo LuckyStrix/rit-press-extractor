@@ -55,6 +55,9 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry]) -> None:
         row.subject_verified = "NO"
         return
     entry = entries[match.entry]
+    if match.shared:  # one list line covers several releases, so each keeps its own title
+        row.subject, row.subject_verified, row.subject_match = row.first_five_words, row.words_verified, "shared"
+        return
     row.subject = entry.subject
     if match.method == "date":
         _add_reasons(row, "subject matched by date only; the release text does not confirm it")

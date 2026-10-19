@@ -44,6 +44,7 @@ class Match:
     confident: bool
     score: float = 0.0
     candidates: list[int] = field(default_factory=list)  # plausible entries when not settled
+    shared: bool = False  # several releases claim this entry (one list line covering many releases)
 
 
 @dataclass
@@ -129,28 +130,51 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
 def _match_day(rels: list[Release], idxs: list[int], scorer: _Scorer, matches: dict, settled: set, touched: set) -> None:
     n, m = len(rels), len(idxs)
     score = np.array([[scorer.score(r, e) for e in idxs] for r in rels])
-    order = np.array([[1 - abs(i - j) / max(n, m) for j in range(m)] for i in range(n)]) * ORDER_BONUS
-    rows, cols = linear_sum_assignment(score + order, maximize=True)
-    chosen = dict(zip(rows.tolist(), cols.tolist()))
-    for i, r in enumerate(rels):
-        if i not in chosen:
-            matches[r.key] = Match(None, "none", False)
+
+    # A release claims the entry its text clearly points to. One list line can cover several
+    # releases (hometown versions of one story), so claims on the same entry are shared.
+    claimed: dict[int, list[int]] = defaultdict(list)
+    for i in range(n):
+        j = int(np.argmax(score[i]))
+        rivals = [score[i, k] for k in range(m) if k != j]
+        if score[i, j] >= MIN_TEXT_SCORE and score[i, j] - max(rivals, default=0.0) >= MIN_MARGIN:
+            claimed[j].append(i)
+    done_rels = {i for owners in claimed.values() for i in owners}
+    for j, owners in claimed.items():
+        for i in owners:
+            matches[rels[i].key] = Match(idxs[j], "date+text", True, float(score[i, j]), shared=len(owners) > 1)
+        settled.add(idxs[j])
+
+    # The rest are settled among the entries nobody has claimed.
+    rest_r = [i for i in range(n) if i not in done_rels]
+    rest_c = [j for j in range(m) if j not in claimed]
+    if not rest_r:
+        touched |= settled
+        return
+    sub = score[np.ix_(rest_r, rest_c)] if rest_c else np.zeros((len(rest_r), 0))
+    order = np.array([[1 - abs(i - j) / max(n, m) for j in rest_c] for i in rest_r]).reshape(len(rest_r), len(rest_c)) * ORDER_BONUS
+    chosen: dict[int, int] = {}
+    if rest_c:
+        rows, cols = linear_sum_assignment(sub + order, maximize=True)
+        chosen = dict(zip(rows.tolist(), cols.tolist()))
+    for a, i in enumerate(rest_r):
+        key = rels[i].key
+        if a not in chosen:
+            matches[key] = Match(None, "none", False)
             continue
-        j = chosen[i]
-        s = float(score[i, j])
-        rivals_row = [score[i, k] for k in range(m) if k != j]
-        rivals_col = [score[k, j] for k in range(n) if k != i]
-        margin = s - max(rivals_row + rivals_col, default=0.0)
-        if n == 1 and m == 1:
-            matches[r.key] = Match(idxs[0], "date+text" if s >= MIN_TEXT_SCORE else "date",
-                                   s >= MIN_TEXT_SCORE, s)
-            settled.add(idxs[0])
+        b = chosen[a]
+        s = float(sub[a, b])
+        rivals = [sub[a, k] for k in range(len(rest_c)) if k != b] + [sub[k, b] for k in range(len(rest_r)) if k != a]
+        margin = s - max(rivals, default=0.0)
+        if len(rest_r) == 1 and len(rest_c) == 1:
+            matches[key] = Match(idxs[rest_c[0]], "date+text" if s >= MIN_TEXT_SCORE else "date", s >= MIN_TEXT_SCORE, s)
+            settled.add(idxs[rest_c[0]])
         elif s >= MIN_TEXT_SCORE and margin >= MIN_MARGIN:
-            matches[r.key] = Match(idxs[j], "date+text", True, s)
-            settled.add(idxs[j])
+            matches[key] = Match(idxs[rest_c[b]], "date+text", True, s)
+            settled.add(idxs[rest_c[b]])
         else:
-            ranked = sorted(range(m), key=lambda k: -score[i, k])[:MAX_CANDIDATES]
-            cands = [idxs[k] for k in ranked if score[i, k] >= max(score[i, ranked[0]] - MIN_MARGIN, 0)]
-            matches[r.key] = Match(None, "date+text" if s > 0 else "date", False, s, cands)
+            ranked = sorted(range(len(rest_c)), key=lambda k: -sub[a, k])[:MAX_CANDIDATES]
+            cands = [idxs[rest_c[k]] for k in ranked if sub[a, k] >= max(sub[a, ranked[0]] - MIN_MARGIN, 0)]
+            matches[key] = Match(None, "date+text" if s > 0 else "date", False, s, cands)
             touched.update(cands)
     touched |= settled

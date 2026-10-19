@@ -99,3 +99,14 @@ def test_failed_pages_stand_alone():
     failed = PageIn("bad.pdf", 1, "", PageResult(row("bad.pdf", 1, "", "NO", "processing failed"), PageSignals(starts=True)))
     out = assemble_folder("f1", [release_page("a.pdf", more=True), failed])
     assert [r.file for r in out.rows] == ["a.pdf", "bad.pdf"]
+
+
+def test_shared_subject_uses_each_releases_own_first_words():
+    pages = [list_page("Nov. 2, 1970 NTID Drama Club - Jorjan Neri", "Nov. 2, 1970 Susan Wolf - Co-op"),
+             release_page("a.pdf", opening="Jorjan Neri took part in an NTID Drama Club production"),
+             release_page("b.pdf", opening="Charles Ritenour took part in an NTID Drama Club production")]
+    out = assemble_folder("f1", pages)
+    for r in out.rows:
+        assert (r.subject, r.subject_match, r.subject_verified) == ("Day-long public symposium", "shared", "YES")
+        assert r.needs_review == "no"
+    assert [e.subject for e in out.unmatched] == ["Susan Wolf - Co-op"]

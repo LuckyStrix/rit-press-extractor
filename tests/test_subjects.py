@@ -83,9 +83,26 @@ def test_common_tags_do_not_carry_a_match():
     assert not res.matches["a"].confident  # only the shared tag matched
 
 
-def test_entry_is_never_given_to_two_releases():
-    entries = [entry(2, "John Ward - Co-op")]
-    releases = [release("a", 2, "", "John Ward co-op"), release("b", 2, "", "John Ward co-op again")]
+def test_one_entry_claimed_by_several_releases_is_shared():
+    """One list line can cover several releases (e.g. hometown versions of one story)."""
+    entries = [entry(3, "Jorjan Neri NTID Drama Club"), entry(3, "James Baker - Co-op")]
+    releases = [release("a", 3, "", "Jorjan Neri, a resident of Wilson, took part in an NTID Drama Club production"),
+                release("b", 3, "", "Charles Ritenour, a resident of Wilson, took part in an NTID Drama Club production"),
+                release("c", 3, "", "Phil Rubin, a resident of Wilson, took part in an NTID Drama Club production")]
     res = match_subjects(releases, entries)
-    assert sum(m.entry is not None for m in res.matches.values()) <= 1
-    assert not any(m.confident for m in res.matches.values())  # two claimants: neither is certain
+    for k in "abc":
+        m = res.matches[k]
+        assert (m.entry, m.method, m.confident, m.shared) == (0, "date+text", True, True), k
+    assert res.unmatched_entries == [1]  # the other entry is still waiting for its release
+
+
+def test_a_release_alone_on_its_entry_is_not_shared():
+    entries = [entry(3, "Jorjan Neri NTID Drama Club"), entry(3, "James Baker - Co-op")]
+    res = match_subjects([release("a", 3, "", "Jorjan Neri took part in an NTID Drama Club production")], entries)
+    assert res.matches["a"].entry == 0 and not res.matches["a"].shared
+
+
+def test_claims_that_are_too_close_are_still_ambiguous_not_shared():
+    entries = [entry(9, "Football - Siena"), entry(9, "Football - Union")]
+    res = match_subjects([release("a", 9, "", "Football fans will see the finale")], entries)
+    assert res.matches["a"].entry is None and not res.matches["a"].shared
