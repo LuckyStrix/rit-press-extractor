@@ -1,5 +1,25 @@
 # Windows setup
 
+## Quick start: one double-click
+
+> **No administrator rights are needed anywhere in this guide.** Everything installs
+> for your own user account, and the tool keeps its own files inside its folder.
+
+1. Install **Python 3.11** for your user only (see step 1 below).
+2. Install **Tesseract** for your user only (see step 1 below).
+3. Download this project (**Code → Download ZIP** on GitHub, then unzip it somewhere in
+   your own folders such as `Documents`) and double-click **`run.bat`**.
+
+That's the whole setup. The first run installs everything else by itself (about 3 GB, 20
+minutes: the OCR software, the GPU or CPU build of PyTorch to match your computer, and the
+models) and opens a small window with an input folder, an output file, a Start button and a
+status area. Next time, double-clicking `run.bat` just opens the window. The rest of this guide
+is the same setup done by hand; you only need it if `run.bat` reports a problem.
+
+---
+
+## Setup by hand
+
 For Windows 10 and 11. It takes about 20 minutes, most of it downloads (longer
 with a GPU). You only do this once. All commands are typed into **PowerShell**.
 
@@ -8,20 +28,6 @@ with a GPU). You only do this once. All commands are typed into **PowerShell**.
   Processing is much faster.
 - If it says "not recognized", follow the **CPU** steps. Everything works the
   same, just slower.
-
-> **No administrator rights are needed anywhere in this guide.** Everything installs
-> for your own user account, and the tool keeps its own files inside its folder.
-
-## Quickest way
-
-1. Install **Python 3.11** for your user only (see step 1).
-2. Install **Tesseract** for your user only (see step 1).
-3. Download this project (**Code → Download ZIP** on GitHub, then unzip it somewhere in
-   your own folders such as `Documents`) and double-click **`run.bat`**.
-
-The first run sets up everything else by itself (about 3 GB, 20 minutes) and opens a small
-window with an input folder, an output file and a status area. The rest of this guide is
-the same setup done by hand; you only need it if `run.bat` reports a problem.
 
 ---
 

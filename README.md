@@ -3,6 +3,22 @@
 Turns photos and scans of archival RIT press releases into a spreadsheet (CSV)
 with each release's **release date** and the **first five words of the article**.
 
+## Quick start: one command
+
+```bash
+python3 run.py          # Linux
+run.bat                 # Windows: double-click it, or type it in PowerShell
+```
+
+That's the whole setup. The first time, it installs everything it needs (about 3 GB,
+15-20 minutes, no administrator rights, all inside this folder), downloads the OCR models,
+and then opens a small window with an **input folder**, an **output file**, a **Start** button
+and a **status** area. After that, the same command just opens the window.
+
+The only things it can't install itself are **Tesseract** (the text-reading program) and, on
+Linux, the system packages `python3-tk` and `python3-venv`. It checks for them and tells you
+exactly what to do. See [Linux setup](docs/setup-linux.md) or [Windows setup](docs/setup-windows.md).
+
 - **Runs entirely on your own computer.** No photos, text or results are sent anywhere.
 - **Reads every page with three OCR engines and cross-checks them.** A field is only
   marked verified when the engines agree. Anything uncertain is flagged for a
@@ -23,19 +39,7 @@ with each release's **release date** and the **first five words of the article**
 
 ## Get started
 
-**The quick way:** one command sets everything up the first time, then opens a small
-window with an input folder, an output file and a status area:
-
-```bash
-python3 run.py          # Linux
-run.bat                 # Windows (double-click it, or type it in PowerShell)
-```
-
-The first run downloads about 3 GB (15-20 minutes) and needs no administrator rights;
-everything goes inside this folder. After that it just opens the window. It will tell you
-if Tesseract, the one program it can't install itself, is missing, and how to get it.
-
-**Or step by step:**
+The quick start above is all most people need. To set things up by hand instead:
 
 1. **Install** with the guide for your computer. Each one covers both GPU
    (NVIDIA graphics card, faster) and CPU-only setups:

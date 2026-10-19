@@ -1,5 +1,9 @@
 # Using the tool
 
+> **Start here:** run `python3 run.py` (Linux) or double-click `run.bat` (Windows). The first
+> time it installs everything; after that it opens a window where you pick the input folder
+> and output file and press **Start**. See [The window](#the-window).
+
 Commands below are written for Linux (`.venv/bin/python`). On Windows, use
 `.venv\Scripts\python` and backslashes in paths. Run everything from inside the
 `rit-press-extractor` folder.

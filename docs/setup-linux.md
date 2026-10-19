@@ -1,5 +1,23 @@
 # Linux setup
 
+## Quick start: two commands
+
+```bash
+sudo apt update && sudo apt install -y git python3 python3-venv python3-tk tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libheif-dev
+python3 run.py
+```
+
+The first line is the only part that needs `sudo`. The second does the rest by itself, with no
+further administrator rights: it creates the Python environment, installs the OCR software (the
+GPU build if it finds an NVIDIA card, otherwise the CPU build), downloads the models, and opens
+a small window with an input folder, an output file, a Start button and a status area. Run it
+from inside the project folder. Next time, `python3 run.py` just opens the window.
+Everything below is the same setup done by hand; you only need it if `run.py` reports a problem.
+
+---
+
+## Setup by hand
+
 For Debian 12+, Ubuntu 24.04+ and similar. It takes about 15 minutes, most of it
 downloads. You only do this once.
 
@@ -10,11 +28,6 @@ downloads. You only do this once.
   Everything works the same, just slower.
 
 ---
-
-> **Quickest way:** after step 1 (the system packages, the only part that needs `sudo`),
-> run `python3 run.py` in the project folder. It does steps 2-4 by itself, with no
-> further administrator rights, and opens a small window with an input folder, an output
-> file and a status area. The steps below are the same setup done by hand.
 
 ## 1. Install system packages
 
