@@ -220,6 +220,34 @@ def test_two_line_first_paragraph_with_short_last_line():
     assert start.line == 1 and start.flags == []
 
 
+# 1970 letterhead releases: all capitals, double spaced, no dateline, no paragraph indent,
+# with a short slug line (a subject tag) under the date.
+CAPS_RELEASE = [
+    (380, 60, "NEWS from ROCHESTER INSTITUTE OF TECHNOLOGY"),
+    (720, 140, "One Lomb Memorial Drive Rochester, New York 14623"),
+    (100, 300, "FOR IMMEDIATE RELEASE Contact: Pete Fellows"),
+    (100, 340, "November 2, 1970 (716) 464-2330"),
+    (100, 380, "TVR"),
+    (100, 480, "A DAY-LONG PUBLIC SYMPOSIUM ON METROPOLITAN TRANSPORTATION IN THE ROCHESTER"),
+    (100, 590, "AREA WILL BE HELD AT ROCHESTER INSTITUTE OF TECHNOLOGY'S METROPOLITAN CENTER,"),
+    (100, 700, "50 MAIN ST. WEST, FROM 9-4:30 ON THURSDAY (NOVEMBER 5). EIGHT SPECIALISTS IN"),
+    (100, 810, "TRANSPORTATION FROM GOVERNMENTAL AND INDEPENDENT AGENCIES WILL GIVE SHORT"),
+    (100, 920, "PRESENTATIONS, WHICH WILL BE FOLLOWED BY OPEN DISCUSSION SESSIONS."),
+]
+
+
+def test_all_caps_double_spaced_body_is_found_and_flagged():
+    lines = layout_page(CAPS_RELEASE)
+    start = find_body_start(lines)
+    assert lines[start.line].words[start.word].text == "A"
+    assert start.line == 5 and start.flags  # a layout guess, so it is sent for review
+
+
+def test_all_caps_header_block_is_not_taken_for_the_body():
+    lines = layout_page(CAPS_RELEASE[:5])  # nothing but a header: no body to find
+    assert find_body_start(lines) is None
+
+
 def test_keyword_checks_use_word_boundaries():
     lines = layout_page([
         (100, 100, "January 9, 1969"),

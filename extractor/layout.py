@@ -5,6 +5,7 @@ import difflib
 import re
 from dataclasses import dataclass, field
 
+from .dates import parse_dates_in_line
 from .models import Line, Word
 from .words import APOSTROPHES, clean_word, is_word
 
@@ -114,6 +115,27 @@ def _is_prose_paragraph(para: list[Line], g: _Geometry) -> bool:
     return para[0].box[2] >= right - 0.2 * g.width
 
 
+RUN_LINES = 3  # consecutive full-width lines that make a block of text rather than a header
+
+
+def _full_width_run(lines: list[Line], g: _Geometry) -> int | None:
+    """Index of the first line of the first block of RUN_LINES aligned lines that each run
+    most of the way across the page. Header lines (release cues, contacts, dates, a
+    letterhead set off to one side) are shorter, misaligned or carry a cue."""
+    def body_like(ln: Line) -> bool:
+        words = [w for w in ln.words if is_word(w.text)]
+        return (len(words) >= 6 and ln.box[2] - ln.box[0] >= 0.7 * g.width
+                and not HEADER_CUE.search(ln.text) and not NON_BODY.search(ln.text)
+                and not parse_dates_in_line(ln, 0))
+
+    for i in range(len(lines) - RUN_LINES + 1):
+        run = lines[i:i + RUN_LINES]
+        if all(body_like(ln) for ln in run) and all(
+                abs(ln.box[0] - run[0].box[0]) / g.char_w <= ALIGN_CHARS for ln in run):
+            return i
+    return None
+
+
 def _looks_like_dateline_prefix(prefix: str) -> bool:
     if not prefix.split() or len(prefix) > 80 or HEADER_CUE.search(prefix) or NON_BODY.search(prefix):
         return False
@@ -164,6 +186,13 @@ def find_body_start(lines: list[Line]) -> BodyStart | None:
             if kind and _is_prose_paragraph(_paragraph(lines, i, g), g):
                 flags = [] if kind == "indent" else ["no dateline or paragraph indent; body start inferred from spacing"]
                 return BodyStart(i, 0, None, flags)
+
+    # 3b. All-capitals typescript with no dateline or indent (double-spaced 1970 releases):
+    #     no lowercase to recognise prose by, so look for the first run of full-width lines.
+    if g is not None:
+        i = _full_width_run(lines, g)
+        if i is not None:
+            return BodyStart(i, 0, None, ["no dateline or paragraph indent; body start inferred from line layout"])
 
     # 4. Last resort: first line that reads like prose.
     for i, line in enumerate(lines):
