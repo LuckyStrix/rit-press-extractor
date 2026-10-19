@@ -1,4 +1,4 @@
-"""Command line: setup (one-time model download), process (files -> CSV), serve (phone capture)."""
+"""Command line: setup (one-time model download), process (files -> CSV), gui (a window for process), serve (phone capture)."""
 from __future__ import annotations
 
 import argparse
@@ -79,27 +79,63 @@ def _init_worker(jobs: int) -> None:
 
 
 def _process_file(path: Path, lang, opts) -> list:
-    """All rows for one input file (one per page, or one failure row)."""
+    """Every page of one input file as a PageResult (one per page, or one failure result)."""
     from .loader import load_pages
-    from .pipeline import failed_row, process_page
+    from .pages import PageSignals
+    from .pipeline import PageResult, analyze_page, failed_row
 
     item = m.group(1) if (m := re.match(r"(\d+)", path.stem)) else ""
+
+    def failed(page_no: int, reason: str):
+        row = failed_row(path.name, item, reason)
+        row.page = page_no
+        return page_no, PageResult(row, PageSignals(starts=True))  # a failed page stands alone
+
     try:
         pages = list(load_pages(path))
     except Exception as exc:  # unreadable/corrupt file: record it so nothing goes missing
-        return [failed_row(path.name, item, f"could not open file: {exc}")]
-    rows = []
+        return [failed(1, f"could not open file: {exc}")]
+    results = []
     for page_no, img in pages:
         try:
-            rows.append(process_page(img, path.name, page_no, item, lang, opts))
+            results.append((page_no, analyze_page(img, path.name, page_no, item, lang, opts)))
         except Exception as exc:  # one bad page must not stop the batch; record it for review
-            row = failed_row(path.name, item, f"processing failed: {type(exc).__name__}: {exc}")
-            row.page = page_no
-            rows.append(row)
-    return rows
+            results.append(failed(page_no, f"processing failed: {type(exc).__name__}: {exc}"))
+    return results
+
+
+def _finish_folder(folder_path: Path, pages: list, out: Path) -> int:
+    """Group a folder's pages into releases, attach list-page subjects, and replace the
+    per-page rows written while it ran. Returns how many releases need review."""
+    from .folder import assemble_folder
+    from .output import merge_rows, write_unmatched
+
+    name = folder_path.name
+    result = assemble_folder(name, pages)
+    merge_rows(out, result.rows, result.consumed, name)
+    unmatched_path = out.with_name(out.stem + "_unmatched_subjects.csv")
+    write_unmatched(unmatched_path, name, result.unmatched)
+    flagged = 0
+    for row in result.rows:
+        flagged += row.needs_review == "YES"
+        mark = "REVIEW" if row.needs_review == "YES" else "ok"
+        span = f"p{row.page}" if row.page_count == 1 else f"{row.page_count} pages from p{row.page}"
+        subject = f" | {row.subject}" if row.subject else ""
+        print(f"  [{mark:6}] {row.file} {span}: {row.release_date or '-'} | {row.first_five_words or '-'}{subject}",
+              flush=True)
+    s = result.summary
+    if s["list_pages"]:
+        print(f"  {name}: {s['list_pages']} list page(s), {s['entries']} entries; {s['releases']} releases: "
+              f"{s['matched']} with a subject, {s['ambiguous']} undecided, {s['no_subject']} without; "
+              f"{s['unmatched_entries']} entries matched no release"
+              + (f" (see {unmatched_path.name})" if s["unmatched_entries"] else ""), flush=True)
+    return flagged
 
 
 def cmd_process(args) -> int:
+    from dataclasses import replace
+
+    from .folder import PageIn
     from .loader import find_inputs
     from .output import append_rows
 
@@ -124,19 +160,31 @@ def cmd_process(args) -> int:
     else:
         pool, results = None, (_process_file(f, args.lang, opts) for f in files)
     flagged = 0
+    folders: dict[Path, list] = {}
+    last_file = {f.parent: f for f in files}  # a folder is finished after its last file
     try:
-        for rows in results:  # in input order
-            append_rows(out, rows)
-            for row in rows:
-                flagged += row.needs_review == "YES"
-                mark = "REVIEW" if row.needs_review == "YES" else "ok"
-                print(f"  [{mark:6}] {row.file} p{row.page}: {row.release_date or '-'} | {row.first_five_words or '-'}",
-                      flush=True)
+        for path, path_results in zip(files, results):  # in input order
+            pages = folders.setdefault(path.parent, [])
+            for page_no, res in path_results:
+                pages.append(PageIn(path.name, page_no, res.row.item_number if res.row else "", res))
+                if res.row is not None:  # saved at once; the folder pass replaces it when the folder is done
+                    append_rows(out, [replace(res.row, folder=path.parent.name)])
+                    print(f"  read {path.name} p{page_no}", flush=True)
+                else:
+                    print(f"  read {path.name} p{page_no} (list page)", flush=True)
+            if last_file[path.parent] == path:
+                flagged += _finish_folder(path.parent, folders.pop(path.parent), out)
     finally:
         if pool:
             pool.shutdown(cancel_futures=True)
-    print(f"Done. {flagged} item(s) need review. Results appended to {out}")
+    print(f"Done. {flagged} item(s) need review. Results saved to {out}")
     return 0
+
+
+def cmd_gui(args) -> int:
+    from .gui import run
+
+    return run()
 
 
 def cmd_debug(args) -> int:
@@ -218,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-j", "--jobs", type=int, default=1, help="photos to process in parallel (each needs ~1.5 GB RAM)")
     add_ocr_options(s)
     s.set_defaults(func=cmd_process)
+
+    s = sub.add_parser("gui", help="a small window: choose a folder and an output file, press Start")
+    s.set_defaults(func=cmd_gui)
 
     s = sub.add_parser("evaluate", help="score a results CSV against a hand-made answer key")
     s.add_argument("results")

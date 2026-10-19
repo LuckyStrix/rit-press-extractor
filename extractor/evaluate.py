@@ -81,9 +81,13 @@ def evaluate(results: Path, truth: Path, show: bool = False, diff: bool = False)
     with open(results, encoding="utf-8") as f:
         rows = {r["file"]: r for r in csv.DictReader(f)}  # last row per file wins
     with open(truth, encoding="utf-8") as f:
-        key = [t for t in csv.DictReader(f)
-               if t.get("release_date", "").strip() or t.get("first_five_words", "").strip()]
+        all_key = list(csv.DictReader(f))
+    # Optional columns, scored only if the key has answers for them: the list-page subject, and
+    # how many pages the release has (is it grouped right?). Unflagged stands in for "verified".
+    optional = [("subject", "subject_verified", _norm_words), ("page_count", None, str.strip)]
     fields = [("release_date", "date_verified", _norm_date), ("first_five_words", "words_verified", _norm_words)]
+    fields += [f for f in optional if any((t.get(f[0]) or "").strip() for t in all_key)]
+    key = [t for t in all_key if any((t.get(name) or "").strip() for name, _, _ in fields)]
     tally = {f: {b: [] for b, _ in BUCKETS} for f, _, _ in fields}
     missing_rows = []
     for t in key:
@@ -100,7 +104,7 @@ def evaluate(results: Path, truth: Path, show: bool = False, diff: bool = False)
                 bucket = "no_answer"
             else:
                 right = norm(got) == norm(want)
-                verified = r.get(verified_col) == "YES"
+                verified = (r.get("needs_review") == "no") if verified_col is None else r.get(verified_col) == "YES"
                 bucket = f"{'verified' if verified else 'flagged'}_{'right' if right else 'wrong'}"
             tally[name][bucket].append((t["file"], got, want))
 

@@ -66,6 +66,31 @@ English and flags the row.
 
 ---
 
+### Subjects from a list page
+
+A folder's list page gives each release a subject. The subject is matched to a release by
+its date and by what the release says, and it is marked verified only when:
+
+1. the release's date group (all entries for that day) has a clear winner: the subject
+   shares at least half of its weighted words with the release's tag and opening text, and
+   beats every other entry for this release, and every other release for this entry, by a
+   clear margin; and
+2. every word of the list's text for that subject was read with Tesseract confidence of
+   at least 85.
+
+Anything else is flagged: a match by date only, by text only (no list entry carries the
+release's date), or several equally good candidates (listed in the reasons, with the subject
+left empty). Unlike the date and first five words, the subject text is read by Tesseract
+alone, so check its spelling on flagged rows.
+
+### Which page starts a release
+
+A page starts a new release if it carries a release line ("For immediate release") or a
+short dated line near the top. A page number (2 or higher), "continued", or a previous page
+ending `-more-` joins it to the release before it. A page ending `-30-` or `###` closes
+its release. Where none of these decide it, the page is joined and flagged, because a wrong
+split costs an extra row to review while a wrong join would hide a release.
+
 ## What "verified" means
 
 A field is marked verified (and the row isn't flagged for it) only when **all**

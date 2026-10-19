@@ -108,9 +108,18 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         reasons.append(f"unsupported script '{script}'; read as Latin")
     tess_lang = force_lang or ocr.SCRIPT_TO_TESS.get(script or "Latin", "eng")
     best = opts.best_model
+    lines = None
+    if not force_lang and tess_lang != "eng":
+        # OSD sometimes calls all-capitals English typescript Cyrillic. A non-Latin guess is only
+        # trusted if an English read of the page is not clearly English.
+        english = ocr.tesseract_lines(page_img, "eng", best=best and ocr.best_model_available("eng"))
+        found, margin = detect_language(" ".join(ln.text for ln in english))
+        if found == "en" and margin >= 2.0:
+            tess_lang, lines = "eng", english
     if best and not ocr.best_model_available(tess_lang):
         reasons.append(f"best model for '{tess_lang}' not installed (setup --tess-best); used standard model")
-    lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
+    if lines is None:
+        lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
     signals = page_signals(lines)
     if detect_list and is_list_page(lines):
         return PageResult(None, signals, list_lines=lines)

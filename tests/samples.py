@@ -111,3 +111,30 @@ def as_phone_photo(page: Image.Image, rotate_exif_like: bool = False) -> Image.I
     warped = np.clip(warped * shade, 0, 255).astype(np.uint8)
     img = Image.fromarray(warped).filter(ImageFilter.GaussianBlur(1.2))
     return img
+
+
+def render_lines(lines: list[str], width: int = 2550, size_div: int = 60) -> Image.Image:
+    """A typed page from literal lines ('' leaves a gap), for list pages, continuation pages
+    and other layouts the Spec renderer does not cover."""
+    height = int(width * 11 / 8.5)
+    img = Image.new("RGB", (width, height), (250, 248, 240))
+    d = ImageDraw.Draw(img)
+    size = width // size_div
+    font = ImageFont.truetype(FONT, size)
+    x, y, lh = width // 9, height // 12, int(size * 1.6)
+    for line in lines:
+        d.text((x, y), line, font=font, fill=(20, 20, 20))
+        y += lh
+    return img
+
+
+def wrapped(text: str, width: int = 2550, size_div: int = 60) -> list[str]:
+    return textwrap.wrap(text, int((width - 2 * (width // 9)) / ((width // size_div) * 0.6)))
+
+
+LIST_PAGE = [
+    "NEWS RELEASES SENT OUT", "", "MONTH .. November.....", "", "Date        Subject        Additional Info.", "",
+    "Nov. 2, 1970   TVR Transportation",
+    "Nov. 2, 1970   Susan Wolf - Co-op",
+    "Nov. 5, 1970   Football schedule",
+]

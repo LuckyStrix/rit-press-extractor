@@ -7,6 +7,9 @@ with each release's **release date** and the **first five words of the article**
 - **Reads every page with three OCR engines and cross-checks them.** A field is only
   marked verified when the engines agree. Anything uncertain is flagged for a
   person to check, with the reason spelled out.
+- **Understands folders of releases:** pages are grouped into releases (multi-page
+  releases get one row), and a folder's "news releases sent out" list page supplies each
+  release's subject line.
 - **Phone capture page (optional):** photograph releases with your phone's
   camera, and they're processed on your computer as you go.
 
@@ -20,6 +23,20 @@ with each release's **release date** and the **first five words of the article**
 
 ## Get started
 
+**The quick way:** one command sets everything up the first time, then opens a small
+window with an input folder, an output file and a status area:
+
+```bash
+python3 run.py          # Linux
+run.bat                 # Windows (double-click it, or type it in PowerShell)
+```
+
+The first run downloads about 3 GB (15-20 minutes) and needs no administrator rights;
+everything goes inside this folder. After that it just opens the window. It will tell you
+if Tesseract, the one program it can't install itself, is missing, and how to get it.
+
+**Or step by step:**
+
 1. **Install** with the guide for your computer. Each one covers both GPU
    (NVIDIA graphics card, faster) and CPU-only setups:
    - [Linux setup](docs/setup-linux.md)
@@ -30,7 +47,7 @@ with each release's **release date** and the **first five words of the article**
    with real material. It explains what the tool keeps, what it never sends
    anywhere, and how the work relates to copyright law and personal information.
 
-Once installed, everyday use is one command:
+Once installed, everyday use is one command (or the window above):
 
 ```bash
 python -m extractor process path/to/photos -o data/results.csv
@@ -70,8 +87,9 @@ python -m pytest -q          # unit tests + end-to-end tests on generated pages 
 ```
 
 The code is in `extractor/`. `pipeline.py` is the per-page flow, `layout.py`
-finds the article, `extract.py` holds the voting rules, and `cli.py` defines the
-commands.
+finds the article, `extract.py` holds the voting rules, `folder.py` groups pages
+into releases and attaches list-page subjects (`listpage.py`, `subjects.py`,
+`pages.py`), `gui.py` is the window, and `cli.py` defines the commands.
 
 ## License
 

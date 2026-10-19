@@ -11,11 +11,16 @@ downloads. You only do this once.
 
 ---
 
+> **Quickest way:** after step 1 (the system packages, the only part that needs `sudo`),
+> run `python3 run.py` in the project folder. It does steps 2-4 by itself, with no
+> further administrator rights, and opens a small window with an input folder, an output
+> file and a status area. The steps below are the same setup done by hand.
+
 ## 1. Install system packages
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libheif-dev
+sudo apt install -y git python3 python3-venv python3-tk tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libheif-dev
 ```
 
 Check that Tesseract is version **5**:

@@ -56,3 +56,44 @@ def test_mpo_uses_only_primary_image(tmp_path):
         assert img.format == "MPO" and img.n_frames == 2
     pages = list(load_pages(path))
     assert len(pages) == 1 and pages[0][1].size == page.size
+
+
+def test_folder_with_list_page_and_two_page_release(tmp_path):
+    """Pages are grouped into releases and subjects come from the list page."""
+    from extractor.cli import main
+
+    from .samples import LIST_PAGE, render_lines, wrapped
+
+    folder = tmp_path / "f1"
+    folder.mkdir()
+    header = ["NEWS from ROCHESTER INSTITUTE OF TECHNOLOGY", "", "FOR IMMEDIATE RELEASE", "November 2, 1970", "TVR", ""]
+    first = [*header, *wrapped("A DAY-LONG PUBLIC SYMPOSIUM ON METROPOLITAN TRANSPORTATION IN THE ROCHESTER "
+                               "AREA WILL BE HELD AT THE INSTITUTE'S METROPOLITAN CENTER ON THURSDAY. EIGHT "
+                               "SPECIALISTS IN TRANSPORTATION WILL GIVE SHORT PRESENTATIONS TO THE PUBLIC."), "", "-more-"]
+    second = ["- 2 -", "", *wrapped("PRESENTATIONS WILL BE FOLLOWED BY OPEN DISCUSSION SESSIONS. EMPHASIS WILL BE ON "
+                                    "SOCIAL, ENVIRONMENTAL AND POLITICAL ISSUES SURROUNDING TRANSPORTATION "
+                                    "DEVELOPMENT. THE FEE IS FIVE DOLLARS."), "", "-30-"]
+    third = [*header[:3], "November 2, 1970", "", *wrapped(
+        "SUSAN WOLF, A STUDENT IN THE COLLEGE OF APPLIED SCIENCE, WILL BEGIN A CO-OP ASSIGNMENT WITH A LOCAL "
+        "FIRM NEXT MONTH. SHE IS THE DAUGHTER OF MR. AND MRS. JAMES WOLF OF ROCHESTER."), "", "-30-"]
+    fourth = [*header[:3], "November 3, 1970", "", *wrapped(
+        "THE INSTITUTE'S WINTER SPORTS PROGRAM WILL OPEN ITS SEASON WITH A HOME GAME ON SATURDAY. TICKETS ARE "
+        "AVAILABLE AT THE DOOR AND THE PUBLIC IS INVITED TO ATTEND THE OPENING CEREMONIES."), "", "-30-"]
+    for name, lines in [("0001.png", first), ("0002.png", second), ("0003.png", third), ("0004.png", fourth),
+                        ("list1.png", LIST_PAGE)]:
+        render_lines(lines).save(folder / name)
+    out = tmp_path / "r.csv"
+    assert main(["process", str(folder), "-o", str(out), "--engines", "tesseract", "--reread", "off"]) == 0
+
+    import csv
+    rows = list(csv.DictReader(open(out, newline="")))
+    by_file = {r["file"]: r for r in rows}
+    assert sorted(by_file) == ["0001.png", "0003.png", "0004.png"]  # the continuation and list pages have no row
+    a, b, c = by_file["0001.png"], by_file["0003.png"], by_file["0004.png"]
+    assert a["first_five_words"].startswith("DAY-LONG PUBLIC SYMPOSIUM")  # all caps is not mistaken for Cyrillic
+    assert a["page_count"] == "2" and a["pages"] == "0001.png p1, 0002.png p1"
+    assert (a["subject"], a["subject_match"]) == ("TVR Transportation", "date+text")
+    assert b["subject"] == "Susan Wolf - Co-op" and b["release_date"] == "1970-11-02"
+    assert c["subject"] == "" and c["needs_review"] == "YES" and "no subject found" in c["review_reasons"]
+    unmatched = list(csv.DictReader(open(tmp_path / "r_unmatched_subjects.csv", newline="")))
+    assert [u["subject"] for u in unmatched] == ["Football schedule"]

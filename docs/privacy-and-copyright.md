@@ -9,8 +9,9 @@
 
 - **Nothing leaves your computer.** Photos, OCR text and results stay on the
   machine running the tool.
-- **The tool keeps very little.** Per release it keeps a date and five words,
-  and, if you use phone capture, the photo itself.
+- **The tool keeps very little.** Per release it keeps a date, five words, a short
+  subject tag and the first 40 words of the article (used to match list-page
+  subjects), and, if you use phone capture, the photo itself.
 - **The photos and spreadsheets contain personal information** (names, sometimes
   addresses or phone numbers), so handle them like any other personal records.
 - **The extracted data is low-risk under copyright** (a fact plus a five-word
@@ -33,7 +34,7 @@ than send anything.
 
 - Photos go to the OCR engines in memory or through a direct pipe. No temporary
   copies are written.
-- No OCR text is cached or logged. The only files written are the ones listed below.
+- No OCR text is cached or logged beyond the short excerpts in the spreadsheet (below). The only files written are the ones listed below.
 - The OCR engines run locally from model files in `models/`. Your material is
   never used to train anything.
 
@@ -56,7 +57,8 @@ also downloads packages, as with any software.
 | File | Contains | Where |
 |---|---|---|
 | Phone captures | full photos of the releases | `data/captures/` |
-| Results spreadsheets | dates, first five words, file names, review notes | wherever you point `-o` (keep them in `data/`) |
+| Results spreadsheets | dates, first five words, the subject, a short subject tag and the first 40 article words, file names, review notes | wherever you point `-o` (keep them in `data/`) |
+| Unmatched-subjects report | list-page subject lines no release claimed, with their dates | next to the results file, `<name>_unmatched_subjects.csv` |
 | Answer keys | your typed dates and first five words | `data/truth.csv` |
 | Models | OCR model files, no material of yours | `models/` |
 

@@ -15,6 +15,15 @@ Commands below are written for Linux (`.venv/bin/python`). On Windows, use
 
 ---
 
+## The window
+
+`python3 run.py` (Linux) or `run.bat` (Windows) opens a small window: choose the **input folder**
+and the **output file**, press **Start**, and watch the progress bar, the status line and
+the log. **Cancel** stops cleanly and keeps the rows saved so far; **Open results folder**
+shows the finished spreadsheet. It runs the same `process` command described below. If
+the software isn't installed yet, the first run installs it. Everything below can also be
+done from a terminal.
+
 ## 1. Take good photos
 
 The tool copes with phone photos, but the better the photo, the more rows come
@@ -27,8 +36,9 @@ out verified:
 - **Name files by item number** if you can (`0042.jpg`). The digits at the
   start of a filename go into the `item_number` column.
 
-Accepted formats: JPG, PNG, TIFF, HEIC (iPhone), WEBP, BMP and PDF. Each PDF
-page is treated as its own release.
+Accepted formats: JPG, PNG, TIFF, HEIC (iPhone), WEBP, BMP and PDF. Pages are
+grouped into releases automatically; see
+[Folders with a list page and multi-page releases](#folders-with-a-list-page-and-multi-page-releases).
 
 ## 2. Process a folder
 
@@ -37,16 +47,22 @@ page is treated as its own release.
 ```
 
 - `data/captures` is a folder (searched including subfolders) or individual files.
-- `-o` is the spreadsheet to write. Rows are **added** to it, so re-running
-  appends rather than replaces; use a new name for a fresh run.
+- `-o` is the spreadsheet to write. Rows are **added** to it. Running a folder
+  again **replaces** that folder's earlier rows (matched by file and page), so
+  re-running after you add a page, or after adding the list page, updates the
+  spreadsheet instead of duplicating it. Rows for other folders are left alone.
 - `-j 4` processes 4 photos at a time (see the speed tables in the setup guides).
 
-Each photo prints a line as it finishes:
+Each page prints a line as it is read, then each release prints a result line when
+its folder is finished:
 ```
+  read 0003.jpg p1
+  read 0006.jpg p1
   [ok    ] 0003.jpg p1: 1969-01-09 | Miss Jane Doe, who is
   [REVIEW] 0006.jpg p1: 1969-01-09 | Four seniors majoring in printing
-Done. 9 item(s) need review. Results appended to data/batch01.csv
+Done. 1 item(s) need review. Results saved to data/batch01.csv
 ```
+The spreadsheet is updated after every page, so a stopped run keeps its progress.
 
 Keep outputs in `data/`: it's private and never committed to git.
 
@@ -61,8 +77,12 @@ Keep outputs in `data/`: it's private and never committed to git.
 | `date_verified`, `words_verified` | `YES` when that field passed every check |
 | `date_confidence`, `words_confidence` | Tesseract's lowest word confidence (0–100) when the engines agree, else `0`. Handy for sorting; it rarely reaches 100 even when right |
 | `language` | the language the article was read in |
-| `needs_review` | `YES` if either field isn't verified |
+| `needs_review` | `YES` if either field isn't verified, or anything else needs a look |
 | `review_reasons` | every reason, in plain words |
+| `subject`, `subject_verified`, `subject_match` | the subject from the folder's list page, whether the match is certain, and how it was found (`date+text`, `date`, `text`, `none`). Blank without a list page |
+| `slug`, `opening_text` | the short tag under the date and the first 40 article words, kept so a list page added later can be matched without reading the photos again |
+| `page_count`, `pages` | how many pages the release has, and which ones |
+| `folder` | the folder the pages came from |
 
 **How the first five words are written:**
 - Exactly as printed, punctuation included: `Smith,` `(R.I.T.)` `"Winter`.
@@ -72,6 +92,39 @@ Keep outputs in `data/`: it's private and never committed to git.
 - A run-in caps headline counts as text: `ACME GIVES COLLEGE GRANT---J. R.`
 
 Full rules: [How accuracy is measured](accuracy.md#how-the-fields-are-chosen).
+
+## Folders with a list page and multi-page releases
+
+**List page.** Some folders hold a page titled "News releases sent out": a typed
+list of dates and subject lines for the releases in the folder. Put it (or, if the list
+runs over several pages, all its pages) in the same folder as the releases. The tool
+detects it by its title, reads the dated lines, and attaches each subject to the matching
+release. A list page produces no row of its own, and the folder summary shows how many
+entries it found.
+
+- **Dates are matched first.** Up to five or more releases can share a day, so within a
+  day the tool compares each subject with what the release says: the short tag printed under
+  the date (the "slug", e.g. `TVR`) and the opening words. A person's name counts for a lot;
+  words nearly every subject shares (`Co-op`, `NTID`) count for little.
+- **The list is read cautiously.** Its dates are often misread (`Now. 4, 2970`) or missing,
+  and the year is only printed on the first page. The tool rebuilds each date from the
+  header month, the list's year and the entry above, and flags every repair in the
+  unmatched-entries report.
+- **A subject is only given when the evidence clearly favours it.** If two entries fit a
+  release equally well, the `subject` cell stays empty and the reasons name the candidates.
+  A release with no list entry is flagged.
+- **Entries no release claimed** are written to `<output>_unmatched_subjects.csv`, e.g.
+  `data/batch01_unmatched_subjects.csv`. If you haven't scanned every release yet, those are
+  the ones still to come; if you have, they point at a missing or misread release.
+
+**Multi-page releases.** Each release gets one row. A page that carries a release line or a date
+near the top starts a new release. A page number, "continued", or a previous page ending
+`-more-` joins a page to the release before it, and `-30-` or `###` closes a release.
+Where the evidence is weak the tool leans toward splitting, and joins it can't be sure of
+are flagged. `page_count` and `pages` show what was joined.
+
+**Adding the list page later.** Add it to the folder and run `process` on that folder
+again; the rows are replaced, not duplicated.
 
 ## 3. Review the flagged rows
 
@@ -93,6 +146,12 @@ and then.
 | `no dateline or paragraph indent; body start inferred from spacing` | the layout was unusual | the words come from the start of the article |
 | `text above the chosen start reads like article text` | the tool may have skipped the real first paragraph | the words come from the first paragraph |
 | `… hyphenated across a line break; joined as '…'` | a word split by a line break was joined | the joined word |
+| `subject could not be settled; possible: 'A'; 'B'` | several list entries fit this release equally well | pick the right subject from the ones listed |
+| `no subject found in the list page` | no entry for this release's date fits it | whether the list is missing it, or the date was misread |
+| `subject matched by date only` / `by its text only` | only one kind of evidence supports the match | that the subject really belongs to this release |
+| `subject text was read with low confidence` | the list page's text was hard to read | the spelling of the subject |
+| `a page with no header, date or page number was assumed to be a continuation` | a page was joined to the release before it without clear evidence | whether it is really part of that release, or a new one |
+| `the page before ended '-more-' but the next page begins a new release` | the pages don't follow the markers | the page order and grouping |
 | `low-resolution page` | the photo is small or far away | retake it closer if the text is hard to read |
 | `could not open file` / `processing failed` | an unreadable or corrupt file | re-export or retake the photo |
 
@@ -176,6 +235,12 @@ the conventions above. Enter leaves a field blank, `b` goes back, `s` skips, and
 `q` saves and quits. Running it again continues where you left off. The tool's
 own answers are never shown, so they can't bias yours.
 
+For folders with a list page, add two optional columns to the answer key in your
+spreadsheet: `subject` (the subject line as the list prints it) and `page_count` (how many
+pages the release has). `evaluate` then scores them too, with the same buckets, and
+**"verified but wrong" must be 0 for them as well.** For `page_count`, a row that isn't
+flagged counts as verified.
+
 **Score a run:**
 ```bash
 .venv/bin/python -m extractor evaluate data/batch01.csv data/truth.csv
@@ -212,7 +277,8 @@ masked (`Xxxxx xx 9999`), so the output is safe to paste when asking for help.
 | Command | What it does |
 |---|---|
 | `setup [--doctr] [--trocr] [--tess-best]` | one-time model download (the only command that uses the internet) |
-| `process FILES/FOLDERS -o OUT.csv [-j N]` | read photos and append rows to a CSV |
+| `gui` | the window (`python3 run.py` opens it, installing first if needed) |
+| `process FILES/FOLDERS -o OUT.csv [-j N]` | read photos, group them into releases, attach list-page subjects, and update the CSV |
 | `serve [-o OUT.csv] [--port 8765]` | phone capture page on this computer |
 | `truth FOLDER [-o data/truth.csv] [--no-open]` | type an answer key |
 | `evaluate RESULTS.csv TRUTH.csv [--diff] [--show]` | score results against an answer key |

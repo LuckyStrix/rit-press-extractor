@@ -9,23 +9,45 @@ with a GPU). You only do this once. All commands are typed into **PowerShell**.
 - If it says "not recognized", follow the **CPU** steps. Everything works the
   same, just slower.
 
+> **No administrator rights are needed anywhere in this guide.** Everything installs
+> for your own user account, and the tool keeps its own files inside its folder.
+
+## Quickest way
+
+1. Install **Python 3.11** for your user only (see step 1).
+2. Install **Tesseract** for your user only (see step 1).
+3. Download this project (**Code → Download ZIP** on GitHub, then unzip it somewhere in
+   your own folders such as `Documents`) and double-click **`run.bat`**.
+
+The first run sets up everything else by itself (about 3 GB, 20 minutes) and opens a small
+window with an input folder, an output file and a status area. The rest of this guide is
+the same setup done by hand; you only need it if `run.bat` reports a problem.
+
 ---
 
 ## 1. Install Python, Git and Tesseract
 
-**Python 3.11 and Git:**
+**Python 3.11**, for your user only:
 ```powershell
-winget install --id Python.Python.3.11 -e
-winget install --id Git.Git -e
+winget install --id Python.Python.3.11 -e --scope user
 ```
-Close and reopen PowerShell afterwards so the new commands are found.
+or download it from [python.org](https://www.python.org/downloads/) and choose
+**Install for me only** (leave "Install launcher for all users" unticked).
+Close and reopen PowerShell afterwards so the new command is found.
+
+**Git** is optional: the project can be downloaded as a ZIP from GitHub, and you can
+update it by downloading the ZIP again. If you want it and have no administrator rights, use
+`winget install --id Git.Git -e --scope user`, or the portable "PortableGit" download.
 
 **Tesseract:** download the installer from the
-[UB Mannheim Tesseract page](https://github.com/UB-Mannheim/tesseract/wiki) and
-run it with the default options. English is included. Tick extra languages only
+[UB Mannheim Tesseract page](https://github.com/UB-Mannheim/tesseract/wiki). If it asks who
+to install for, choose **Install just for me**; it then goes in
+`%LOCALAPPDATA%\Programs\Tesseract-OCR`, which the tool finds by itself, and
+you don't need the `setx` step below. English is included. Tick extra languages only
 if you have releases in other languages.
 
-Tell the tool where Tesseract is. This is permanent; reopen PowerShell after:
+If you installed it somewhere else (or all-users, in `C:\Program Files`), tell the tool
+where it is. This is permanent and needs no administrator rights; reopen PowerShell after:
 ```powershell
 setx TESSERACT "C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```

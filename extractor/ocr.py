@@ -18,9 +18,20 @@ from .models import Line, Word, merge_rows, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 TESSDATA_BEST = MODELS_DIR / "tessdata_best"  # optional, filled by `setup --tess-best`
-# Tesseract binary: $TESSERACT, else PATH, else the Windows installer's default location.
-TESSERACT = (os.environ.get("TESSERACT") or shutil.which("tesseract")
-             or r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+def _find_tesseract() -> str:
+    """$TESSERACT, else PATH, else where a Windows install puts it: per-user (no administrator
+    needed), a copy inside the project folder, or the all-users default."""
+    if found := os.environ.get("TESSERACT") or shutil.which("tesseract"):
+        return found
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Tesseract-OCR" / "tesseract.exe",
+        MODELS_DIR.parent / "tesseract" / "tesseract.exe",
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    ]
+    return str(next((c for c in candidates if c.is_file()), candidates[-1]))
+
+
+TESSERACT = _find_tesseract()
 
 # Harmless PyTorch notices from EasyOCR on a CPU-only machine; they don't affect results.
 warnings.filterwarnings("ignore", message=r".*pin_memory.*no accelerator", category=UserWarning)
