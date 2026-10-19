@@ -20,6 +20,9 @@ _DASHLESS_DATELINE = re.compile(r"^([A-Z][A-Z.'’\-]{2,}(?:\s[A-Z][A-Z.'’\-]+
 INDENT_MIN_CHARS, INDENT_MAX_CHARS = 2.5, 15
 ALIGN_CHARS = 1.5  # continuation lines start within this many characters of each other
 
+POSITION_ONLY_FLAG = "second engine's body start located by position only"
+
+
 @dataclass
 class BodyStart:
     line: int
@@ -286,7 +289,7 @@ def align_body_start(lines: list[Line], ref_line: Line, ref_word: int, ref_datel
             return BodyStart(i, b + ref_word - a, dateline)
     target_x = ref_line.words[ref_word].box[0]
     j = min(range(len(lines[i].words)), key=lambda j: abs(lines[i].words[j].box[0] - target_x))
-    return BodyStart(i, j, dateline, ["second engine's body start located by position only"])
+    return BodyStart(i, j, dateline, [POSITION_ONLY_FLAG])
 
 
 SLUG_MAX_LINES, SLUG_MAX_WORDS = 3, 12

@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from .dates import DateFound, pick_release_date
-from .layout import BodyStart, BodyWord, align_body_start, body_words, find_body_start
+from .layout import POSITION_ONLY_FLAG, BodyStart, BodyWord, align_body_start, body_words, find_body_start
 from .models import Line
 from .words import capitalize_first, strip_leading_articles
 
@@ -159,7 +159,11 @@ def reconcile_words(readings: list[EngineReading]) -> FieldResult:
     if primary is None:
         return FieldResult("", 0.0, _merge_flags([(r.engine, r.word_flags) for r in readings]) + ["no article words found"])
     counted = supporters if verified else readings
-    reasons = _merge_flags([(r.engine, r.word_flags) for r in counted])
+    # A second engine that had to find the body by position still read the same five words as
+    # Tesseract; that agreement is the check, so its alignment doubt only counts when it doesn't hold.
+    flags = [(r.engine, [f for f in r.word_flags if not (verified and r is not primary and f == POSITION_ONLY_FLAG)])
+             for r in counted]
+    reasons = _merge_flags(flags)
     value = " ".join(w.text for w in primary.words)
     if not verified:
         if primary is not readings[0]:

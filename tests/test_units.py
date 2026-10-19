@@ -445,3 +445,28 @@ def test_second_engines_body_start_doubt_does_not_touch_the_date():
     assert any("by position only" in f for f in second.word_flags)  # still doubts where the words are
     assert second.date is not None and second.date_flags == []
     assert primary.date_flags == []
+
+
+POSITION_FLAG = "second engine's body start located by position only"
+
+
+def test_alignment_doubt_is_dropped_when_the_second_engine_reads_the_same_words():
+    r = _readings("Mr. Richard Hill, 58 Keats", "Mr. Richard Hill 58 Keats", "Mr. Richard Hill, 58 Keats")
+    r[1].word_flags.append(POSITION_FLAG)  # EasyOCR dropped a comma, so only letters and digits are compared
+    result = reconcile_words(r)
+    assert result.reasons == [] and result.value == "Mr. Richard Hill, 58 Keats"
+
+
+def test_alignment_doubt_stays_when_the_second_engine_reads_different_words():
+    r = _readings("Mr. Richard Hill, 58 Keats", "Mr. Richard Hil1, 58 Keats", "Mr. Richard Hill, 58 Keats")
+    r[1].word_flags.append(POSITION_FLAG)
+    result = reconcile_words(r)  # docTR still gives a majority; the odd engine out is outvoted
+    assert result.reasons == []
+    two = reconcile_words(_readings("Mr. Richard Hill, 58 Keats", "Mr. Richard Hil1, 58 Keats"))
+    assert two.reasons  # with two engines, any disagreement is flagged
+
+
+def test_other_start_flags_are_not_dropped():
+    r = _readings("Mr. Richard Hill, 58 Keats", "Mr. Richard Hill 58 Keats", "Mr. Richard Hill, 58 Keats")
+    r[0].word_flags.append("no dateline or paragraph indent; body start inferred from spacing")
+    assert reconcile_words(r).reasons  # Tesseract's own layout guess still needs a look
