@@ -35,8 +35,10 @@ def read_fields(engine: str, lines: list[Line], lang: str | None,
         date, dflags = pick_release_date(lines, len(lines), None)
         nobody = ["could not find the article body"]
         return EngineReading(engine, date, [], nobody + dflags, nobody)
-    # Where the body starts also decides what counts as header, so layout doubts hit both fields.
-    date_flags, word_flags = list(start.flags), list(start.flags)
+    # Where the body starts also decides what counts as header, so Tesseract's layout doubts hit
+    # both fields. A second engine's flags only say how its start was lined up with Tesseract's,
+    # which matters for the words; the date is read from the header and cross-checked by the vote.
+    date_flags, word_flags = ([] if anchor else list(start.flags)), list(start.flags)
     dateline = None
     if start.dateline is not None:
         dl = lines[start.dateline]

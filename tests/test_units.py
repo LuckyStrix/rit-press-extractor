@@ -423,3 +423,25 @@ def test_files_are_read_in_natural_order(tmp_path):
         (tmp_path / name).write_bytes(b"x")
     names = [p.name for p in find_inputs([tmp_path])]
     assert names == ["0020.jpg", "0100.jpg", "release1.pdf", "release2.pdf", "Release3.pdf", "release10.pdf"]
+
+
+def test_second_engines_body_start_doubt_does_not_touch_the_date():
+    """EasyOCR's lines often differ from Tesseract's in the first paragraph, so its body start is
+    found by position. That says nothing about the header date, which the vote already checks."""
+    from extractor.extract import read_fields
+
+    rows = [(100, 100, "FOR IMMEDIATE RELEASE"), (100, 140, "November 2, 1970"),
+            (160, 300, "Mr. John M. Ward, 240 Owego St., Candor, N.Y., has joined the staff"),
+            (100, 350, "of the Union Central Life Insurance Company, Rochester, as a student."),
+            (100, 400, "Ward, a third year Business Administration major, will serve as an agent."),
+            (100, 450, "The program is part of the continuing effort to grow and remain consistent.")]
+    garbled = [(100, 100, "FOR IMMEDIATE RELEASE"), (100, 140, "November 2, 1970"),
+               (160, 300, "Mp Jchn Wrd 24O Owcgo Sl Cardor NY hos jaied tho stoff"),
+               (100, 350, "of the Union Central Life Insurance Company, Rochester, as a student."),
+               (100, 400, "Ward, a third year Business Administration major, will serve as an agent."),
+               (100, 450, "The program is part of the continuing effort to grow and remain consistent.")]
+    primary = read_fields("tesseract", layout_page(rows), "en")
+    second = read_fields("easyocr", layout_page(garbled), "en", primary.anchor)
+    assert any("by position only" in f for f in second.word_flags)  # still doubts where the words are
+    assert second.date is not None and second.date_flags == []
+    assert primary.date_flags == []
