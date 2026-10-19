@@ -6,6 +6,7 @@ actually wrong. That must be zero before trusting unflagged rows.
 from __future__ import annotations
 
 import csv
+import os
 import re
 from pathlib import Path
 
@@ -26,14 +27,22 @@ def make_template(results: Path, truth: Path) -> int:
     if truth.exists():
         raise SystemExit(f"{truth} already exists; not overwriting it")
     with open(results, encoding="utf-8") as f:
-        files = list(dict.fromkeys(r["file"] for r in csv.DictReader(f)))
-    with open(truth, "w", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        header = reader.fieldnames or []
+    files = list(dict.fromkeys(r["file"] for r in rows))
+    # Folders with a list page also get the optional columns that score subjects and page grouping.
+    columns = TRUTH_COLUMNS + (["subject", "page_count"] if "subject" in header else [])
+    fd = os.open(truth, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(TRUTH_COLUMNS)
+        w.writerow(columns)
         for name in files:
-            w.writerow([name, "", ""])
+            w.writerow([name] + [""] * (len(columns) - 1))
+    extra = ("\nAlso fill in subject (as the list page prints it; for a release whose list line covers several, "
+             "its own first five words) and page_count." if len(columns) > len(TRUTH_COLUMNS) else "")
     print(f"Wrote {truth} with {len(files)} rows. Fill in release_date (e.g. 1969-01-09 or January 9, 1969)\n"
-          f"and first_five_words from the paper originals, not from the tool's output.")
+          f"and first_five_words from the paper originals, not from the tool's output.{extra}")
     return 0
 
 

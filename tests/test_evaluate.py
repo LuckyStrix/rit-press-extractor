@@ -47,3 +47,21 @@ def test_keys_without_subject_columns_still_work(tmp_path, capsys):
           [{"file": "a.pdf", "release_date": "1970-11-02", "first_five_words": "Day-long public symposium on"}])
     assert evaluate(tmp_path / "r.csv", tmp_path / "t.csv") == 0
     assert "subject" not in capsys.readouterr().out
+
+
+def test_template_has_subject_columns_only_for_list_page_results(tmp_path):
+    from extractor.evaluate import make_template
+
+    write(tmp_path / "r.csv", COLUMNS, [result("a.pdf"), result("a.pdf"), result("b.pdf")])
+    make_template(tmp_path / "r.csv", tmp_path / "t.csv")
+    assert list(csv.reader(open(tmp_path / "t.csv")))[0] == ["file", "release_date", "first_five_words", "subject", "page_count"]
+    assert [r["file"] for r in read(tmp_path / "t.csv")] == ["a.pdf", "b.pdf"]
+    old = COLUMNS[:13]  # a results file from before subjects existed
+    write(tmp_path / "old.csv", old, [{c: "x" for c in old}])
+    make_template(tmp_path / "old.csv", tmp_path / "t_old.csv")
+    assert list(csv.reader(open(tmp_path / "t_old.csv")))[0] == ["file", "release_date", "first_five_words"]
+
+
+def read(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
