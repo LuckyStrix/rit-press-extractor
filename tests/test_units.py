@@ -414,3 +414,12 @@ def test_real_low_confidence_word_next_to_text_is_kept():
 
     words = [Word("Smudged", 20.0, (100, 0, 180, 30)), Word("word", 95.0, (192, 0, 240, 30))]
     assert len(trim_edge_noise(words)) == 2  # no wide gap: it's part of the line
+
+
+def test_files_are_read_in_natural_order(tmp_path):
+    from extractor.loader import find_inputs
+
+    for name in ["release10.pdf", "release2.pdf", "release1.pdf", "Release3.pdf", "0100.jpg", "0020.jpg"]:
+        (tmp_path / name).write_bytes(b"x")
+    names = [p.name for p in find_inputs([tmp_path])]
+    assert names == ["0020.jpg", "0100.jpg", "release1.pdf", "release2.pdf", "Release3.pdf", "release10.pdf"]

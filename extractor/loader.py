@@ -1,6 +1,7 @@
 """Turn input files (phone photos, scans, PDFs) into RGB page images, in memory only."""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,12 +17,17 @@ SUPPORTED_EXTS = IMAGE_EXTS | PDF_EXTS
 PDF_DPI = 300
 
 
+def natural_key(path: Path) -> list:
+    """Sort key that reads digit runs as numbers, so release2 comes before release10."""
+    return [[int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", part)] for part in path.parts]
+
+
 def find_inputs(paths: list[Path]) -> list[Path]:
     """Expand directories into supported files, sorted for stable output order."""
     found: list[Path] = []
     for p in paths:
         if p.is_dir():
-            found.extend(sorted(f for f in p.rglob("*") if f.suffix.lower() in SUPPORTED_EXTS))
+            found.extend(sorted((f for f in p.rglob("*") if f.suffix.lower() in SUPPORTED_EXTS), key=natural_key))
         elif p.suffix.lower() in SUPPORTED_EXTS:
             found.append(p)
         else:
