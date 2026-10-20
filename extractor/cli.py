@@ -104,7 +104,7 @@ def _process_file(path: Path, lang, opts) -> list:
     return results
 
 
-def _finish_folder(folder_path: Path, pages: list, out: Path) -> int:
+def _finish_folder(folder_path: Path, pages: list, out: Path, naming_args=None) -> int:
     """Group a folder's pages into releases, attach list-page subjects, and replace the
     per-page rows written while it ran. Returns how many releases need review."""
     from .folder import assemble_folder
@@ -112,6 +112,12 @@ def _finish_folder(folder_path: Path, pages: list, out: Path) -> int:
 
     name = folder_path.name
     result = assemble_folder(name, pages)
+    pdfs = {}
+    naming = _naming_for(folder_path, naming_args)
+    if naming:
+        from .catalog import apply_names
+
+        pdfs = apply_names(result, naming)
     merge_rows(out, result.rows, result.consumed, name)
     unmatched_path = out.with_name(out.stem + "_unmatched_subjects.csv")
     write_unmatched(unmatched_path, name, result.unmatched)
@@ -123,6 +129,14 @@ def _finish_folder(folder_path: Path, pages: list, out: Path) -> int:
         subject = f" | {row.subject}" if row.subject else ""
         print(f"  [{mark:6}] {row.file} {span}: {row.release_date or '-'} | {row.first_five_words or '-'}{subject}",
               flush=True)
+    if pdfs and naming_args.pdfs:
+        from .catalog import write_pdfs
+
+        for message in write_pdfs(folder_path, pdfs, Path(naming_args.pdfs), naming_args.force_pdfs):
+            print(f"  named {message}", flush=True)
+    elif not naming and naming_args is not None and (naming_args.pdfs or naming_args.box or naming_args.folder):
+        print(f"  {name}: no box/folder number, so the releases are not numbered or named "
+              "(pass --box and --folder, or name the folder like 'Box 12/Folder 3')", flush=True)
     s = result.summary
     if s["list_pages"]:
         print(f"  {name}: {s['list_pages']} list page(s), {s['entries']} entries; {s['releases']} releases: "
@@ -130,6 +144,20 @@ def _finish_folder(folder_path: Path, pages: list, out: Path) -> int:
               f"{s['unmatched_entries']} entries matched no release"
               + (f" (see {unmatched_path.name})" if s["unmatched_entries"] else ""), flush=True)
     return flagged
+
+
+def _naming_for(folder_path: Path, args):
+    """The box/folder/release naming for one input folder: typed values win over the folder's own name."""
+    from .catalog import LIST_TEMPLATE, RELEASE_TEMPLATE, Naming, infer_box_folder
+
+    if args is None:
+        return None
+    box, folder_no = infer_box_folder(folder_path)
+    box, folder_no = args.box or box, args.folder or folder_no
+    if not (box and folder_no):
+        return None
+    return Naming(box, folder_no, args.first_release, args.name_template or RELEASE_TEMPLATE,
+                  args.list_name_template or LIST_TEMPLATE)
 
 
 def cmd_process(args) -> int:
@@ -150,6 +178,16 @@ def cmd_process(args) -> int:
         print("No supported files found.", file=sys.stderr)
         return 1
     opts = _options(args)
+    try:
+        for d in {f.parent for f in files}:
+            _naming_for(d, args)  # a bad box, folder or template stops the run before the long part
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if (args.box or args.folder) and len({f.parent for f in files}) > 1:
+        print("--box/--folder name one physical folder, but the inputs span several folders. "
+              "Run them separately, or name the folders like 'Box 12/Folder 3'.", file=sys.stderr)
+        return 2
     if args.jobs > 1:
         import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor
@@ -173,7 +211,7 @@ def cmd_process(args) -> int:
                 else:
                     print(f"  read {path.name} p{page_no} (list page)", flush=True)
             if last_file[path.parent] == path:
-                flagged += _finish_folder(path.parent, folders.pop(path.parent), out)
+                flagged += _finish_folder(path.parent, folders.pop(path.parent), out, args)
     finally:
         if pool:
             pool.shutdown(cancel_futures=True)
@@ -264,6 +302,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-o", "--output", default=str(DEFAULT_CSV))
     s.add_argument("--lang", help="force a Tesseract language, e.g. 'fra' or 'eng+deu'")
     s.add_argument("-j", "--jobs", type=int, default=1, help="photos to process in parallel (each needs ~1.5 GB RAM)")
+    g = s.add_argument_group("filing: number the releases and name their PDFs")
+    g.add_argument("--box", help="box label (e.g. 12); otherwise read from a folder named like 'Box 12'")
+    g.add_argument("--folder", help="folder label (e.g. 3); otherwise read from a folder named like 'Folder 3'")
+    g.add_argument("--first-release", type=int, default=1, help="release number of the first release (default 1)")
+    g.add_argument("--pdfs", metavar="DIR", help="write one named PDF per release (and the list page) into DIR; "
+                   "without it the proposed names are only added to the spreadsheet")
+    g.add_argument("--force-pdfs", action="store_true", help="replace PDFs that already exist in --pdfs")
+    g.add_argument("--name-template", help="release PDF name; {box} {folder} {release} (default Box{box}_Folder{folder}_{release:03d})")
+    g.add_argument("--list-name-template", help="list page PDF name; {box} {folder}")
     add_ocr_options(s)
     s.set_defaults(func=cmd_process)
 

@@ -33,6 +33,8 @@ class FolderOutput:
     unmatched: list[ListEntry]  # list entries no release claimed
     summary: dict[str, int]
     consumed: set[tuple[str, int]]  # every (file, page) this output replaces in an existing CSV
+    release_pages: list[list[tuple[str, int]]] = field(default_factory=list)  # (file, page) of each row's pages
+    list_pages: list[tuple[str, int]] = field(default_factory=list)  # (file, page) of the list page(s)
 
 
 def _add_reasons(row: Row, *reasons: str) -> None:
@@ -74,6 +76,7 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
     groups = group_pages([p.result.signals for p in release_pages])
 
     rows: list[Row] = []
+    members_of: list[list[tuple[str, int]]] = []
     texts: list[Release] = []
     for g in groups:
         members = [release_pages[i] for i in g.pages]
@@ -82,6 +85,7 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
                       pages=", ".join(f"{m.file} p{m.page}" for m in members))
         _add_reasons(row, *g.flags)
         rows.append(row)
+        members_of.append([(m.file, m.page) for m in members])
         date = row.release_date
         texts.append(Release(len(rows) - 1, _as_date(date), row.date_verified == "YES",
                              first.result.slug, first.result.opening))
@@ -103,7 +107,7 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
         summary.update(entries=len(entries), matched=outcomes["matched"], ambiguous=outcomes["ambiguous"],
                        no_subject=outcomes["no_subject"], unmatched_entries=len(unmatched))
     consumed = {(p.file, p.page) for p in pages}
-    return FolderOutput(rows, unmatched, summary, consumed)
+    return FolderOutput(rows, unmatched, summary, consumed, members_of, [(p.file, p.page) for p in list_pages])
 
 
 def _as_date(iso: str) -> dt.date | None:

@@ -52,8 +52,15 @@ def default_jobs() -> int:
     return max(1, min(MAX_JOBS, (os.cpu_count() or 2) // 2, int(_ram_gb() // JOB_RAM_GB)))
 
 
-def build_command(folder: Path, output: Path, jobs: int) -> list[str]:
-    return [sys.executable, "-m", "extractor", "process", str(folder), "-o", str(output), "-j", str(jobs)]
+def pdf_dir_for(output: Path) -> Path:
+    return output.with_name(output.stem + "_pdfs")
+
+
+def build_command(folder: Path, output: Path, jobs: int, box: str = "", folder_no: str = "") -> list[str]:
+    cmd = [sys.executable, "-m", "extractor", "process", str(folder), "-o", str(output), "-j", str(jobs)]
+    if box and folder_no:  # numbers the releases and writes one named PDF each, next to the results file
+        cmd += ["--box", box, "--folder", folder_no, "--pdfs", str(pdf_dir_for(output))]
+    return cmd
 
 
 @dataclass
@@ -118,6 +125,7 @@ class App:
         root.title("RIT Press Release Extractor")
         root.minsize(640, 420)
         self.folder, self.output = tk.StringVar(), tk.StringVar(value=str(DEFAULT_OUTPUT))
+        self.box, self.folder_no = tk.StringVar(), tk.StringVar()
         self.status = tk.StringVar(value="Choose a folder of scans and press Start.")
         self.lines: queue.Queue = queue.Queue()
         self.proc: subprocess.Popen | None = None
@@ -127,7 +135,7 @@ class App:
         frame = ttk.Frame(root, padding=12)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(5, weight=1)
         ttk.Label(frame, text="Input folder").grid(row=0, column=0, sticky="w", pady=4)
         ttk.Entry(frame, textvariable=self.folder).grid(row=0, column=1, sticky="ew", padx=8)
         ttk.Button(frame, text="Browse…", command=self.pick_folder).grid(row=0, column=2)
@@ -135,8 +143,16 @@ class App:
         ttk.Entry(frame, textvariable=self.output).grid(row=1, column=1, sticky="ew", padx=8)
         ttk.Button(frame, text="Browse…", command=self.pick_output).grid(row=1, column=2)
 
+        ttk.Label(frame, text="Box / Folder #").grid(row=2, column=0, sticky="w", pady=4)
+        filing = ttk.Frame(frame)
+        filing.grid(row=2, column=1, columnspan=2, sticky="w", padx=8)
+        ttk.Entry(filing, textvariable=self.box, width=8).pack(side="left")
+        ttk.Label(filing, text=" / ").pack(side="left")
+        ttk.Entry(filing, textvariable=self.folder_no, width=8).pack(side="left")
+        ttk.Label(filing, text="  Optional: numbers the releases and saves a named PDF of each").pack(side="left")
+
         buttons = ttk.Frame(frame)
-        buttons.grid(row=2, column=0, columnspan=3, sticky="w", pady=8)
+        buttons.grid(row=3, column=0, columnspan=3, sticky="w", pady=8)
         self.start = ttk.Button(buttons, text="Start", command=self.begin)
         self.cancel = ttk.Button(buttons, text="Cancel", command=self.stop, state="disabled")
         self.open_btn = ttk.Button(buttons, text="Open results folder", command=self.show_results, state="disabled")
@@ -144,10 +160,10 @@ class App:
             b.pack(side="left", padx=(0, 8))
 
         self.bar = ttk.Progressbar(frame, maximum=100)
-        self.bar.grid(row=3, column=0, columnspan=3, sticky="ew")
+        self.bar.grid(row=4, column=0, columnspan=3, sticky="ew")
         self.log = scrolledtext.ScrolledText(frame, height=12, state="disabled", font=("TkFixedFont", 9))
-        self.log.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=8)
-        ttk.Label(frame, textvariable=self.status, wraplength=600).grid(row=5, column=0, columnspan=3, sticky="w")
+        self.log.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=8)
+        ttk.Label(frame, textvariable=self.status, wraplength=600).grid(row=6, column=0, columnspan=3, sticky="w")
         root.protocol("WM_DELETE_WINDOW", self.close)
 
     # --- choosing files ---
@@ -156,6 +172,12 @@ class App:
 
         if chosen := filedialog.askdirectory(title="Folder of scans"):
             self.folder.set(chosen)
+            from .catalog import infer_box_folder
+
+            box, folder_no = infer_box_folder(Path(chosen))  # "Box 12/Folder 3" fills the fields in
+            if box and folder_no:
+                self.box.set(box)
+                self.folder_no.set(folder_no)
 
     def pick_output(self) -> None:
         from tkinter import filedialog
@@ -191,9 +213,19 @@ class App:
             total = 0
         if not total:
             return self._problem("Input folder", "That folder has no scans or PDFs the tool can read.")
+        box, folder_no = self.box.get().strip(), self.folder_no.get().strip()
+        if bool(box) != bool(folder_no):
+            return self._problem("Box / Folder #", "Fill in both the box and the folder number, or leave both empty.")
+        if box:
+            from .catalog import Naming
+
+            try:
+                Naming(box, folder_no)
+            except ValueError as exc:
+                return self._problem("Box / Folder #", str(exc))
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         kwargs = {"creationflags": 0x00000200} if os.name == "nt" else {"start_new_session": True}
-        self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs()), cwd=PROJECT_DIR, env=env,
+        self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs(), box, folder_no), cwd=PROJECT_DIR, env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
         self.state, self.cancelled = RunState(total_files=total), False
         threading.Thread(target=self._reader, args=(self.proc,), daemon=True).start()
@@ -243,6 +275,8 @@ class App:
 
     def show_results(self) -> None:
         target = Path(self.output.get()).resolve().parent
+        if self.box.get().strip() and pdf_dir_for(Path(self.output.get()).resolve()).is_dir():
+            target = pdf_dir_for(Path(self.output.get()).resolve())
         if os.name == "nt":
             os.startfile(target)  # noqa: S606
         else:

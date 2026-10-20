@@ -130,6 +130,37 @@ are flagged. `page_count` and `pages` show what was joined.
 **Adding the list page later.** Add it to the folder and run `process` on that folder
 again; the rows are replaced, not duplicated.
 
+## Numbering releases and naming the PDFs
+
+Filing a folder of photos means a box, a folder and a release number for every release.
+Type the box and folder once; the tool numbers the releases for you.
+
+```bash
+.venv/bin/python -m extractor process "scans/Box 12/Folder 3" -o data/box12.csv --pdfs data/box12_pdfs
+```
+
+- **Box and folder** come from `--box 12 --folder 3`, or from the folder's own name
+  (`Box 12/Folder 3`, `box12_folder03`; a folder named only by digits inside a `Box` folder
+  counts as the folder number). In the window, fill in the **Box / Folder #** boxes
+  (choosing a folder named like that fills them in); leave them empty to skip this step.
+  Typed values win over the name. `--box` and `--folder` name one physical folder, so they
+  are refused when the input spans several; name those folders instead.
+- **Release number** is the release's position in photo order (natural file-name order), starting
+  at 1 (`--first-release 40` to continue a folder). A release that runs over several pages
+  counts once. List pages are found as before and are not numbered.
+- **The spreadsheet** gains `box`, `folder_no`, `release_no` and `file_name` columns: the
+  proposed name of each release, so the plan can be checked before any file is made.
+- **`--pdfs DIR`** writes one PDF per release (all its pages, in order) plus one for the list
+  page(s). Your photos are only read, never renamed or moved. An existing PDF is left alone
+  unless you add `--force-pdfs`. In the window the PDFs go in `<results name>_pdfs` beside the
+  results file.
+- **The naming convention** is a placeholder, `Box12_Folder3_001.pdf` and `Box12_Folder3_list.pdf`.
+  Change it with `--name-template "{box}-{folder}-{release:03d}"` and `--list-name-template`
+  (or edit the two templates at the top of `extractor/catalog.py`).
+
+Check the release boundaries before filing: a release the grouping split or joined wrongly
+shifts every number after it. The rows flagged `needs_review` say where the tool was unsure.
+
 ## 3. Review the flagged rows
 
 Open the CSV in Excel, LibreOffice or Google Sheets (choose **UTF-8** if asked),

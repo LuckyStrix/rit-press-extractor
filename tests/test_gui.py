@@ -47,3 +47,9 @@ def test_cancel_is_reported_as_stopped():
     st = RunState(total_files=1)
     st.finish(returncode=-15, cancelled=True)
     assert not st.failed and "stopped" in st.status.lower()
+
+
+def test_filing_numbers_add_the_naming_options_to_the_command():
+    cmd = build_command(Path("/in/f1"), Path("/out/r.csv"), 2, "12", "3")
+    assert cmd[-6:] == ["--box", "12", "--folder", "3", "--pdfs", "/out/r_pdfs"]
+    assert "--box" not in build_command(Path("/in/f1"), Path("/out/r.csv"), 2)

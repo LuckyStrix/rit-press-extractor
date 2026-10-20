@@ -57,6 +57,11 @@ class Row:
     page_count: int = 1
     pages: str = ""  # every page of the release, "file p1, file p2"
     folder: str = ""
+    # Filled in by the cataloguing step (extractor/catalog.py) when a box and folder number are known.
+    box: str = ""
+    folder_no: str = ""
+    release_no: str = ""  # position of the release in the folder, in photo order
+    file_name: str = ""  # the proposed name of the release's PDF, without ".pdf"
 
 
 @dataclass

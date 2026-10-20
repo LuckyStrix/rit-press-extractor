@@ -1,0 +1,63 @@
+"""Numbering releases and naming their PDFs from a box and folder."""
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+from extractor.catalog import Naming, apply_names, infer_box_folder, write_pdfs
+from extractor.folder import assemble_folder
+
+from .test_folder import cont_page, list_page, release_page
+
+
+@pytest.mark.parametrize("path, expected", [
+    ("/scans/Box 12/Folder 3", ("12", "3")),
+    ("/scans/box12_folder03", ("12", "03")),
+    ("/scans/Box_7/14", ("7", "14")),
+    ("/scans/Box 7", ("7", "")),
+    ("/scans/misc", ("", "")),
+])
+def test_box_and_folder_are_read_from_the_path(path, expected):
+    assert infer_box_folder(Path(path)) == expected
+
+
+def test_releases_are_numbered_in_photo_order_and_multipage_ones_count_once():
+    out = assemble_folder("f1", [release_page("a.pdf", more=True), cont_page("a.pdf", 2), list_page("x"),
+                                 release_page("b.pdf"), release_page("c.pdf")])
+    pdfs = apply_names(out, Naming("12", "3"))
+    assert [r.release_no for r in out.rows] == ["1", "2", "3"]
+    assert [r.file_name for r in out.rows] == ["Box12_Folder3_001", "Box12_Folder3_002", "Box12_Folder3_003"]
+    assert list(pdfs) == ["Box12_Folder3_list", "Box12_Folder3_001", "Box12_Folder3_002", "Box12_Folder3_003"]
+    assert pdfs["Box12_Folder3_001"] == [("a.pdf", 1), ("a.pdf", 2)]
+    assert pdfs["Box12_Folder3_list"] == [("list1.pdf", 1)]
+    assert out.rows[0].box == "12" and out.rows[0].folder_no == "3"
+
+
+def test_first_release_and_template_can_change():
+    out = assemble_folder("f1", [release_page("a.pdf"), release_page("b.pdf")])
+    apply_names(out, Naming("1", "2", first_release=40, template="{box}-{folder}-{release}"))
+    assert [r.file_name for r in out.rows] == ["1-2-40", "1-2-41"]
+
+
+@pytest.mark.parametrize("kwargs", [
+    dict(box="1/2", folder="3"), dict(box="", folder="3"), dict(box="1", folder="a b"),
+    dict(box="1", folder="3", first_release=0), dict(box="1", folder="3", template="{nope}"),
+])
+def test_bad_box_folder_or_template_is_refused(kwargs):
+    with pytest.raises(ValueError):
+        Naming(**kwargs)
+
+
+def test_pdfs_hold_all_pages_and_never_overwrite(tmp_path):
+    src = tmp_path / "Box 1" / "Folder 2"
+    src.mkdir(parents=True)
+    for n in ("a.png", "b.png"):
+        Image.new("RGB", (850, 1100), "white").save(src / n)
+    out = tmp_path / "named"
+    msgs = write_pdfs(src, {"one": [("a.png", 1), ("b.png", 1)], "two": [("b.png", 1)]}, out, False)
+    assert msgs == ["one.pdf (2 pages)", "two.pdf (1 page)"]
+    assert (out / "one.pdf").read_bytes().count(b"/Type /Page\n") + (out / "one.pdf").read_bytes().count(b"/Type /Page ") >= 2
+    before = (out / "one.pdf").read_bytes()
+    assert "already exists" in write_pdfs(src, {"one": [("a.png", 1)]}, out, False)[0]
+    assert (out / "one.pdf").read_bytes() == before
+    assert write_pdfs(src, {"one": [("a.png", 1)]}, out, True) == ["one.pdf (1 page)"]
