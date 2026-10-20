@@ -132,7 +132,11 @@ def _finish_folder(folder_path: Path, pages: list, out: Path, naming_args=None) 
     if pdfs and naming_args.pdfs:
         from .catalog import write_pdfs
 
-        for message in write_pdfs(folder_path, pdfs, Path(naming_args.pdfs), naming_args.force_pdfs, naming):
+        try:
+            messages = write_pdfs(folder_path, pdfs, Path(naming_args.pdfs), naming_args.force_pdfs, naming)
+        except OSError as exc:  # the CSV is already saved; say so and go on to the next folder
+            messages = [f"FAILED, no PDFs written for {name}: {exc}"]
+        for message in messages:
             print(f"  named {message}", flush=True)
     elif not naming and naming_args is not None and (naming_args.pdfs or naming_args.box or naming_args.folder):
         print(f"  {name}: no box/folder number, so the releases are not numbered or named "
@@ -186,7 +190,7 @@ def cmd_process(args) -> int:
             if not naming:
                 unlabelled.append(d)
                 continue
-            key = (naming.box, naming.folder)
+            key = (naming.box.lower(), naming.folder.lower())  # file names may ignore case
             if key in labels:
                 raise ValueError(f"{labels[key]} and {d} are both Box {key[0]} Folder {key[1]}, so their "
                                  "releases would get the same names. Run them separately.")

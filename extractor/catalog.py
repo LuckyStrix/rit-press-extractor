@@ -74,7 +74,7 @@ def infer_box_folder(folder_path: Path) -> tuple[str, str]:
     """Box and folder labels from the path ("Box 12/Folder 3", "box12_folder3"), blank if absent.
     A folder named only by digits inside a box folder counts as the folder number."""
     box = folder_no = ""
-    parts = folder_path.parts
+    parts = folder_path.resolve().parts  # so "." and ".." still have names
     for part in reversed(parts[-2:]):  # the folder itself and its parent; farther up is unrelated
         if not box and (m := _BOX.search(part)):
             box = m[1]
@@ -113,7 +113,7 @@ def write_pdfs(folder_path: Path, pdfs: dict[str, list[tuple[str, int]]], out_di
         for name, pages in pdfs.items():
             target = out_dir / f"{name}.pdf"
             if target.exists() and not force:
-                messages.append(f"{target.name} already exists; left alone (use --force-pdfs to replace it)")
+                messages.append(f"{target.name} already exists; left alone. If this folder was run before and its releases changed, it may hold a different release than the CSV says (use --force-pdfs to replace it)")
                 continue
             partial = target.with_name(target.name + ".part")
             try:

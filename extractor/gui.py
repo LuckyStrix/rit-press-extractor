@@ -126,7 +126,7 @@ class App:
         root.minsize(640, 420)
         self.folder, self.output = tk.StringVar(), tk.StringVar(value=str(DEFAULT_OUTPUT))
         self.box, self.folder_no = tk.StringVar(), tk.StringVar()
-        self.pdf_dir: Path | None = None  # where the last run put its PDFs
+        self._filled = ("", "")  # what the folder name last filled in, to tell it from typed values
         self.folder.trace_add("write", self._refill_filing)
         self.status = tk.StringVar(value="Choose a folder of scans and press Start.")
         self.lines: queue.Queue = queue.Queue()
@@ -179,9 +179,12 @@ class App:
         """Box and folder follow the chosen folder's name, and are blank when it has none."""
         from .catalog import infer_box_folder
 
-        box, folder_no = infer_box_folder(Path(self.folder.get().strip()))
-        self.box.set(box)
-        self.folder_no.set(folder_no)
+        typed = (self.box.get(), self.folder_no.get())
+        if typed not in (("", ""), self._filled):  # the user typed these; keep them
+            return
+        self._filled = infer_box_folder(Path(self.folder.get().strip()))
+        self.box.set(self._filled[0])
+        self.folder_no.set(self._filled[1])
 
     def pick_output(self) -> None:
         from tkinter import filedialog
@@ -231,7 +234,6 @@ class App:
             if len({f.parent for f in find_inputs([src])}) > 1:
                 return self._problem("Box / Folder #", "That folder holds several subfolders, and a box and folder "
                                      "number name one physical folder. Choose one subfolder, or clear both fields.")
-        self.pdf_dir = pdf_dir_for(Path(out).resolve()) if box else None
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         kwargs = {"creationflags": 0x00000200} if os.name == "nt" else {"start_new_session": True}
         self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs(), box, folder_no), cwd=PROJECT_DIR, env=env,
@@ -284,8 +286,6 @@ class App:
 
     def show_results(self) -> None:
         target = Path(self.output.get()).resolve().parent
-        if self.pdf_dir is not None and self.pdf_dir.is_dir():
-            target = self.pdf_dir
         if os.name == "nt":
             os.startfile(target)  # noqa: S606
         else:

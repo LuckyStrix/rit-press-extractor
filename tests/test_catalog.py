@@ -112,3 +112,11 @@ def test_pdfs_left_from_an_earlier_numbering_are_reported(tmp_path):
     msgs = write_pdfs(src, {"Box1_Folder2_041": [("a.png", 1)]}, out, False, naming)
     stale = [m for m in msgs if "earlier run" in m]
     assert len(stale) == 2 and all("Box9" not in m for m in stale)
+
+
+def test_a_relative_path_still_has_its_names(tmp_path, monkeypatch):
+    d = tmp_path / "Box 12" / "Folder 3"
+    d.mkdir(parents=True)
+    monkeypatch.chdir(d)
+    assert infer_box_folder(Path(".")) == ("12", "3")
+    assert infer_box_folder(Path("..")) == ("12", "")
