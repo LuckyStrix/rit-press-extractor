@@ -25,6 +25,7 @@ _ID = re.compile(r"[A-Za-z0-9]{1,8}")  # box and folder labels go into file name
 _LABEL = r"(\d+[A-Za-z]?|[A-Za-z])(?![A-Za-z0-9])"
 _BOX = re.compile(rf"(?<![A-Za-z])box[\s_.-]*{_LABEL}", re.I)
 _FOLDER = re.compile(rf"(?<![A-Za-z])folder[\s_.-]*{_LABEL}", re.I)
+_WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL", *(f"{d}{i}" for d in ("COM", "LPT") for i in range(1, 10))}
 _UNSAFE_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]|^\.|\.$|^\s|\s$')
 
 
@@ -50,12 +51,12 @@ class Naming:
         # Every release needs its own file, so the release template must vary with the number, and no
         # name may be a path or collide with another (the list page included).
         names = [self.release_name(n) for n in (self.first_release, self.first_release + 1, 10**6)] + [self.list_name()]
-        if len(set(names)) != len(names):
+        if len({n.lower() for n in names}) != len(names):  # Windows and macOS file names ignore case
             raise ValueError(f"The name templates {self.template!r} and {self.list_template!r} would give "
                              "two PDFs the same name: the release template needs {release}, and the two must differ.")
         for name in names:
-            if not name or _UNSAFE_NAME.search(name):
-                raise ValueError(f"The name {name!r} is not a usable file name (no slashes or other path characters).")
+            if not name or _UNSAFE_NAME.search(name) or name.split(".")[0].upper() in _WINDOWS_DEVICES:
+                raise ValueError(f"The name {name!r} is not a usable file name (no slashes or other path characters, and not a Windows device name like CON).")
 
     def release_name(self, number: int) -> str:
         return self.template.format(box=self.box, folder=self.folder, release=number)

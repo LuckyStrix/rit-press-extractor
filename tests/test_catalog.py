@@ -47,6 +47,7 @@ def test_first_release_and_template_can_change():
     dict(box="1", folder="3", first_release=0), dict(box="1", folder="3", template="{nope}"),
     dict(box="1", folder="3", template="Box{box}_Folder{folder}"),  # same name for every release
     dict(box="1", folder="3", template="{box}/{release}"), dict(box="1", folder="3", template="../{release}"),
+    dict(box="1", folder="3", list_template="con"), dict(box="1", folder="3", template="x{release}", list_template="X1"),
     dict(box="1", folder="3", template="x{release}", list_template="x1"),  # list name collides with a release
 ])
 def test_bad_box_folder_or_template_is_refused(kwargs):
