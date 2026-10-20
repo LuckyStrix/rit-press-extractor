@@ -179,10 +179,21 @@ def cmd_process(args) -> int:
         return 1
     opts = _options(args)
     try:
-        for d in {f.parent for f in files}:
-            _naming_for(d, args)  # a bad box, folder or template stops the run before the long part
+        labels: dict[tuple[str, str], Path] = {}
+        for d in sorted({f.parent for f in files}):
+            naming = _naming_for(d, args)  # a bad box, folder or template stops the run before the long part
+            if naming and args.pdfs:
+                key = (naming.box, naming.folder)
+                if key in labels:
+                    raise ValueError(f"{labels[key]} and {d} are both Box {key[0]} Folder {key[1]}, so their PDFs "
+                                     "would share names. Run them separately.")
+                labels[key] = d
     except ValueError as exc:
         print(exc, file=sys.stderr)
+        return 2
+    if args.first_release != 1 and len({f.parent for f in files}) > 1:
+        print("--first-release continues one folder's numbering, but the inputs span several folders. "
+              "Run them separately.", file=sys.stderr)
         return 2
     if (args.box or args.folder) and len({f.parent for f in files}) > 1:
         print("--box/--folder name one physical folder, but the inputs span several folders. "

@@ -16,6 +16,8 @@ from .test_folder import cont_page, list_page, release_page
     ("/scans/Box_7/14", ("7", "14")),
     ("/scans/Box 7", ("7", "")),
     ("/scans/misc", ("", "")),
+    ("/scans/Boxes/Folder_misc", ("", "")),
+    ("/scans/Box A/Folder 3b", ("A", "3b")),
 ])
 def test_box_and_folder_are_read_from_the_path(path, expected):
     assert infer_box_folder(Path(path)) == expected
@@ -42,6 +44,9 @@ def test_first_release_and_template_can_change():
 @pytest.mark.parametrize("kwargs", [
     dict(box="1/2", folder="3"), dict(box="", folder="3"), dict(box="1", folder="a b"),
     dict(box="1", folder="3", first_release=0), dict(box="1", folder="3", template="{nope}"),
+    dict(box="1", folder="3", template="Box{box}_Folder{folder}"),  # same name for every release
+    dict(box="1", folder="3", template="{box}/{release}"), dict(box="1", folder="3", template="../{release}"),
+    dict(box="1", folder="3", template="x{release}", list_template="x1"),  # list name collides with a release
 ])
 def test_bad_box_folder_or_template_is_refused(kwargs):
     with pytest.raises(ValueError):
@@ -56,8 +61,26 @@ def test_pdfs_hold_all_pages_and_never_overwrite(tmp_path):
     out = tmp_path / "named"
     msgs = write_pdfs(src, {"one": [("a.png", 1), ("b.png", 1)], "two": [("b.png", 1)]}, out, False)
     assert msgs == ["one.pdf (2 pages)", "two.pdf (1 page)"]
-    assert (out / "one.pdf").read_bytes().count(b"/Type /Page\n") + (out / "one.pdf").read_bytes().count(b"/Type /Page ") >= 2
+    import pypdfium2 as pdfium
+
+    assert len(pdfium.PdfDocument(out / "one.pdf")) == 2
     before = (out / "one.pdf").read_bytes()
     assert "already exists" in write_pdfs(src, {"one": [("a.png", 1)]}, out, False)[0]
     assert (out / "one.pdf").read_bytes() == before
     assert write_pdfs(src, {"one": [("a.png", 1)]}, out, True) == ["one.pdf (1 page)"]
+
+
+def test_photos_are_stored_without_loss_and_a_bad_page_is_not_fatal(tmp_path):
+    import pypdfium2 as pdfium
+
+    src = tmp_path / "in"
+    src.mkdir()
+    img = Image.effect_noise((300, 400), 80).convert("RGB")
+    img.save(src / "a.png")
+    out = tmp_path / "named"
+    msgs = write_pdfs(src, {"ok": [("a.png", 1)], "bad": [("missing.png", 1)]}, out, False)
+    assert msgs[0] == "ok.pdf (1 page)" and "FAILED" in msgs[1] and not (out / "bad.pdf").exists()
+    doc = pdfium.PdfDocument(out / "ok.pdf")
+    assert len(doc) == 1 and doc[0].get_size() == pytest.approx((72, 96))  # 300x400 px at 300 px/inch
+    stream = next(o for o in doc[0].get_objects() if o.type == pdfium.raw.FPDF_PAGEOBJ_IMAGE)
+    assert stream.get_bitmap().to_pil().convert("RGB").tobytes() == img.tobytes()
