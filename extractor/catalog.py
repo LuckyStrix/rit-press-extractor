@@ -60,6 +60,12 @@ class Naming:
     def release_name(self, number: int) -> str:
         return self.template.format(box=self.box, folder=self.folder, release=number)
 
+    def owns(self, stem: str) -> bool:
+        """Whether a file name (no extension) looks like one this naming makes, for any release number."""
+        marker = 987654321
+        pattern = re.escape(self.release_name(marker)).replace(str(marker), r"\d+")
+        return stem == self.list_name() or re.fullmatch(pattern, stem) is not None
+
     def list_name(self) -> str:
         return self.list_template.format(box=self.box, folder=self.folder, release=0)
 
@@ -69,7 +75,7 @@ def infer_box_folder(folder_path: Path) -> tuple[str, str]:
     A folder named only by digits inside a box folder counts as the folder number."""
     box = folder_no = ""
     parts = folder_path.parts
-    for part in reversed(parts):
+    for part in reversed(parts[-2:]):  # the folder itself and its parent; farther up is unrelated
         if not box and (m := _BOX.search(part)):
             box = m[1]
         if not folder_no and (m := _FOLDER.search(part)):
@@ -93,47 +99,83 @@ def apply_names(result: FolderOutput, naming: Naming) -> dict[str, list[tuple[st
     return pdfs
 
 
-def write_pdfs(folder_path: Path, pdfs: dict[str, list[tuple[str, int]]], out_dir: Path, force: bool) -> list[str]:
+def write_pdfs(folder_path: Path, pdfs: dict[str, list[tuple[str, int]]], out_dir: Path, force: bool,
+               naming: Naming | None = None) -> list[str]:
     """Write each named PDF (all of a release's pages, in order) into out_dir. Existing files are
     left alone unless force. Nothing is lost: PDF pages are copied as they are and photos are stored
-    as their exact pixels (no JPEG re-compression). A file that cannot be written is reported, not
-    fatal. Returns one message per file written or refused."""
+    as their exact pixels (no JPEG re-compression). A PDF is written whole or not at all (a page that
+    cannot be read fails it), and a failure never damages a PDF already there. Returns one message per
+    file written or refused, plus one per leftover PDF from an earlier run (given naming)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     messages = []
-    for name, pages in pdfs.items():
-        target = out_dir / f"{name}.pdf"
-        if target.exists() and not force:
-            messages.append(f"{target.name} already exists; left alone (use --force-pdfs to replace it)")
-            continue
-        try:
-            count = _write_pdf(folder_path, pages, target)
-        except Exception as exc:
-            target.unlink(missing_ok=True)
-            messages.append(f"{target.name}: FAILED, not written ({type(exc).__name__}: {exc})")
-            continue
-        messages.append(f"{target.name} ({count} page{'s' if count != 1 else ''})" if count
-                        else f"{target.name}: could not read its pages")
+    sources = _Sources(folder_path)
+    try:
+        for name, pages in pdfs.items():
+            target = out_dir / f"{name}.pdf"
+            if target.exists() and not force:
+                messages.append(f"{target.name} already exists; left alone (use --force-pdfs to replace it)")
+                continue
+            partial = target.with_name(target.name + ".part")
+            try:
+                count = _write_pdf(sources, pages, partial)
+                partial.replace(target)
+            except Exception as exc:
+                partial.unlink(missing_ok=True)
+                messages.append(f"{target.name}: FAILED, not written ({type(exc).__name__}: {exc})")
+                continue
+            messages.append(f"{target.name} ({count} page{'s' if count != 1 else ''})")
+    finally:
+        sources.close()
+    if naming:
+        for old in sorted(out_dir.glob("*.pdf")):
+            if old.stem not in pdfs and naming.owns(old.stem):
+                messages.append(f"{old.name} is from an earlier run and matches no release now; left alone, "
+                                "delete it if it is out of date")
     return messages
 
 
-def _write_pdf(folder_path: Path, pages: list[tuple[str, int]], target: Path) -> int:
+class _Sources:
+    """Source files opened once and reused across PDFs; images are decoded one file at a time."""
+
+    def __init__(self, folder_path: Path):
+        self.folder_path = folder_path
+        self.pdfs: dict[str, object] = {}
+        self.image_file, self.images = None, {}
+
+    def pdf(self, file: str):
+        import pypdfium2 as pdfium
+
+        if file not in self.pdfs:
+            self.pdfs[file] = pdfium.PdfDocument(self.folder_path / file)
+        return self.pdfs[file]
+
+    def image(self, file: str, number: int):
+        from .loader import load_pages
+
+        if file != self.image_file:
+            self.images = dict(load_pages(self.folder_path / file))
+            self.image_file = file
+        return self.images.get(number)
+
+    def close(self):
+        for doc in self.pdfs.values():
+            doc.close()
+
+
+def _write_pdf(sources: _Sources, pages: list[tuple[str, int]], target: Path) -> int:
     import pypdfium2 as pdfium
 
-    from .loader import PDF_EXTS, load_pages
+    from .loader import PDF_EXTS
 
     doc = pdfium.PdfDocument.new()
-    sources = []
     try:
         for file, number in pages:
-            path = folder_path / file
-            if path.suffix.lower() in PDF_EXTS:  # copy the page itself, not a picture of it
-                src = pdfium.PdfDocument(path)
-                sources.append(src)
-                doc.import_pages(src, [number - 1], index=len(doc))
+            if Path(file).suffix.lower() in PDF_EXTS:  # copy the page itself, not a picture of it
+                doc.import_pages(sources.pdf(file), [number - 1], index=len(doc))
                 continue
-            img = next((im for n, im in load_pages(path) if n == number), None)
+            img = sources.image(file, number)
             if img is None:
-                continue
+                raise ValueError(f"{file} page {number} could not be read")
             w, h = img.size
             pt_w, pt_h = w * 72 / PDF_PIXELS_PER_INCH, h * 72 / PDF_PIXELS_PER_INCH
             page = doc.new_page(pt_w, pt_h)
@@ -142,11 +184,9 @@ def _write_pdf(folder_path: Path, pages: list[tuple[str, int]], target: Path) ->
             obj.set_matrix(pdfium.PdfMatrix().scale(pt_w, pt_h))
             page.insert_obj(obj)
             page.gen_content()
-        count = len(doc)
-        if count:
-            doc.save(target)
-        return count
+        if not len(doc):
+            raise ValueError("no pages")
+        doc.save(target)
+        return len(doc)
     finally:
         doc.close()
-        for src in sources:
-            src.close()

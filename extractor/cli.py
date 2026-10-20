@@ -132,7 +132,7 @@ def _finish_folder(folder_path: Path, pages: list, out: Path, naming_args=None) 
     if pdfs and naming_args.pdfs:
         from .catalog import write_pdfs
 
-        for message in write_pdfs(folder_path, pdfs, Path(naming_args.pdfs), naming_args.force_pdfs):
+        for message in write_pdfs(folder_path, pdfs, Path(naming_args.pdfs), naming_args.force_pdfs, naming):
             print(f"  named {message}", flush=True)
     elif not naming and naming_args is not None and (naming_args.pdfs or naming_args.box or naming_args.folder):
         print(f"  {name}: no box/folder number, so the releases are not numbered or named "
@@ -180,14 +180,20 @@ def cmd_process(args) -> int:
     opts = _options(args)
     try:
         labels: dict[tuple[str, str], Path] = {}
+        unlabelled = []
         for d in sorted({f.parent for f in files}):
             naming = _naming_for(d, args)  # a bad box, folder or template stops the run before the long part
-            if naming and args.pdfs:
-                key = (naming.box, naming.folder)
-                if key in labels:
-                    raise ValueError(f"{labels[key]} and {d} are both Box {key[0]} Folder {key[1]}, so their PDFs "
-                                     "would share names. Run them separately.")
-                labels[key] = d
+            if not naming:
+                unlabelled.append(d)
+                continue
+            key = (naming.box, naming.folder)
+            if key in labels:
+                raise ValueError(f"{labels[key]} and {d} are both Box {key[0]} Folder {key[1]}, so their "
+                                 "releases would get the same names. Run them separately.")
+            labels[key] = d
+        if labels and unlabelled:
+            print("These folders have no box/folder number, so their releases will not be numbered or named: "
+                  + ", ".join(str(d) for d in unlabelled), file=sys.stderr, flush=True)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2

@@ -126,6 +126,8 @@ class App:
         root.minsize(640, 420)
         self.folder, self.output = tk.StringVar(), tk.StringVar(value=str(DEFAULT_OUTPUT))
         self.box, self.folder_no = tk.StringVar(), tk.StringVar()
+        self.pdf_dir: Path | None = None  # where the last run put its PDFs
+        self.folder.trace_add("write", self._refill_filing)
         self.status = tk.StringVar(value="Choose a folder of scans and press Start.")
         self.lines: queue.Queue = queue.Queue()
         self.proc: subprocess.Popen | None = None
@@ -172,12 +174,14 @@ class App:
 
         if chosen := filedialog.askdirectory(title="Folder of scans"):
             self.folder.set(chosen)
-            from .catalog import infer_box_folder
 
-            box, folder_no = infer_box_folder(Path(chosen))  # "Box 12/Folder 3" fills the fields in
-            if box and folder_no:
-                self.box.set(box)
-                self.folder_no.set(folder_no)
+    def _refill_filing(self, *_) -> None:
+        """Box and folder follow the chosen folder's name, and are blank when it has none."""
+        from .catalog import infer_box_folder
+
+        box, folder_no = infer_box_folder(Path(self.folder.get().strip()))
+        self.box.set(box)
+        self.folder_no.set(folder_no)
 
     def pick_output(self) -> None:
         from tkinter import filedialog
@@ -218,11 +222,16 @@ class App:
             return self._problem("Box / Folder #", "Fill in both the box and the folder number, or leave both empty.")
         if box:
             from .catalog import Naming
+            from .loader import find_inputs
 
             try:
                 Naming(box, folder_no)
             except ValueError as exc:
                 return self._problem("Box / Folder #", str(exc))
+            if len({f.parent for f in find_inputs([src])}) > 1:
+                return self._problem("Box / Folder #", "That folder holds several subfolders, and a box and folder "
+                                     "number name one physical folder. Choose one subfolder, or clear both fields.")
+        self.pdf_dir = pdf_dir_for(Path(out).resolve()) if box else None
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         kwargs = {"creationflags": 0x00000200} if os.name == "nt" else {"start_new_session": True}
         self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs(), box, folder_no), cwd=PROJECT_DIR, env=env,
@@ -275,8 +284,8 @@ class App:
 
     def show_results(self) -> None:
         target = Path(self.output.get()).resolve().parent
-        if self.box.get().strip() and pdf_dir_for(Path(self.output.get()).resolve()).is_dir():
-            target = pdf_dir_for(Path(self.output.get()).resolve())
+        if self.pdf_dir is not None and self.pdf_dir.is_dir():
+            target = self.pdf_dir
         if os.name == "nt":
             os.startfile(target)  # noqa: S606
         else:
