@@ -6,6 +6,8 @@ with each release's **release date** and the **first five words of the article**
 ## Quick start: one command
 
 ```bash
+git clone https://github.com/LuckyStrix/rit-press-extractor.git
+cd rit-press-extractor
 python3 run.py          # Linux
 run.bat                 # Windows: double-click it, or type it in PowerShell
 ```
