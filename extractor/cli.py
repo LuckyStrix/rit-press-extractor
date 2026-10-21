@@ -118,6 +118,10 @@ def _finish_folder(folder_path: Path, pages: list, out: Path, naming_args=None) 
         from .catalog import apply_names
 
         pdfs = apply_names(result, naming)
+    from .metadata import digitized_date
+
+    for row, pages in zip(result.rows, result.release_pages):
+        row.digitized = digitized_date(folder_path / pages[0][0])
     merge_rows(out, result.rows, result.consumed, name)
     unmatched_path = out.with_name(out.stem + "_unmatched_subjects.csv")
     write_unmatched(unmatched_path, name, result.unmatched)
@@ -160,8 +164,27 @@ def _naming_for(folder_path: Path, args):
     box, folder_no = args.box or box, args.folder or folder_no
     if not (box and folder_no):
         return None
-    return Naming(box, folder_no, args.first_release, args.name_template or RELEASE_TEMPLATE,
-                  args.list_name_template or LIST_TEMPLATE)
+    local = getattr(args, "template", None)  # typed templates win over the metadata template's
+    return Naming(box, folder_no, args.first_release,
+                  args.name_template or (local and local.name_template) or RELEASE_TEMPLATE,
+                  args.list_name_template or (local and local.list_name_template) or LIST_TEMPLATE)
+
+
+def _xlsx_path(args, out: Path) -> Path:
+    return Path(args.xlsx) if args.xlsx else out.with_suffix(".xlsx")
+
+
+def _write_xlsx(out: Path, template, xlsx: Path) -> None:
+    from .metadata import write_xlsx
+
+    try:
+        count = write_xlsx(out, template, xlsx)
+    except OSError as exc:  # e.g. the workbook is open in Excel; the CSV is saved either way
+        print(f"FAILED to write {xlsx} ({exc}); close it if it is open, then run: "
+              f"python -m extractor xlsx \"{out}\"", flush=True)
+        return
+    print(f"Metadata spreadsheet: {count} release(s) in {xlsx}"
+          + ("" if count else " (no release has a file name: give a box and folder number)"), flush=True)
 
 
 def cmd_process(args) -> int:
@@ -183,6 +206,12 @@ def cmd_process(args) -> int:
         return 1
     opts = _options(args)
     try:
+        from .metadata import load_template
+
+        args.template = load_template(Path(args.metadata_template) if args.metadata_template else None)
+        if args.xlsx and not args.template:
+            raise ValueError("--xlsx needs a metadata template: put one at local/metadata_template.json "
+                             "or pass --metadata-template (see docs/using.md).")
         labels: dict[tuple[str, str], Path] = {}
         unlabelled = []
         for d in sorted({f.parent for f in files}):
@@ -236,7 +265,29 @@ def cmd_process(args) -> int:
     finally:
         if pool:
             pool.shutdown(cancel_futures=True)
+    if args.template:
+        _write_xlsx(out, args.template, _xlsx_path(args, out))
     print(f"Done. {flagged} item(s) need review. Results saved to {out}")
+    return 0
+
+
+def cmd_xlsx(args) -> int:
+    from .metadata import load_template
+
+    out = Path(args.results)
+    try:
+        template = load_template(Path(args.metadata_template) if args.metadata_template else None)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if not template:
+        print("No metadata template: put one at local/metadata_template.json or pass --metadata-template.",
+              file=sys.stderr)
+        return 2
+    if not out.exists():
+        print(f"{out} does not exist.", file=sys.stderr)
+        return 1
+    _write_xlsx(out, template, _xlsx_path(args, out))
     return 0
 
 
@@ -330,10 +381,21 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--pdfs", metavar="DIR", help="write one named PDF per release (and the list page) into DIR; "
                    "without it the proposed names are only added to the spreadsheet")
     g.add_argument("--force-pdfs", action="store_true", help="replace PDFs that already exist in --pdfs")
-    g.add_argument("--name-template", help="release PDF name; {box} {folder} {release} (default Box{box}_Folder{folder}_{release:03d})")
+    g.add_argument("--name-template", help="release PDF name; {box} {folder} {release} (default: the metadata "
+                   "template's, else Box{box}_Folder{folder}_{release:03d})")
     g.add_argument("--list-name-template", help="list page PDF name; {box} {folder}")
+    g.add_argument("--metadata-template", metavar="JSON", help="metadata spreadsheet layout (and PDF naming); "
+                   "default local/metadata_template.json when it exists")
+    g.add_argument("--xlsx", metavar="FILE", help="where to write the metadata spreadsheet "
+                   "(default: the results file with .xlsx); written whenever there is a template")
     add_ocr_options(s)
     s.set_defaults(func=cmd_process)
+
+    s = sub.add_parser("xlsx", help="rebuild the metadata spreadsheet from a results CSV (e.g. after fixing it)")
+    s.add_argument("results", nargs="?", default=str(DEFAULT_CSV))
+    s.add_argument("--metadata-template", metavar="JSON", help="default local/metadata_template.json")
+    s.add_argument("--xlsx", metavar="FILE", help="default: the results file with .xlsx")
+    s.set_defaults(func=cmd_xlsx)
 
     s = sub.add_parser("gui", help="a small window: choose a folder and an output file, press Start")
     s.set_defaults(func=cmd_gui)

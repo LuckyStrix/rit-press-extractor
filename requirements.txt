@@ -4,6 +4,7 @@ scipy>=1.10
 pillow>=12
 pillow-heif>=1.8
 pypdfium2>=4.30
+openpyxl>=3.1
 opencv-python-headless>=4.11
 pytest>=9
 # Optional extra engines (--engines ...,doctr / ...,trocr); models via setup --doctr / --trocr

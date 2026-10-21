@@ -62,6 +62,7 @@ class Row:
     folder_no: str = ""
     release_no: str = ""  # position of the release in the folder, in photo order
     file_name: str = ""  # the proposed name of the release's PDF, without ".pdf"
+    digitized: str = ""  # when the release's (first) source file was made, yyyy-mm-dd
 
 
 @dataclass

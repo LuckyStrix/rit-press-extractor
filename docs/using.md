@@ -154,9 +154,26 @@ Type the box and folder once; the tool numbers the releases for you.
   page(s). Your photos are only read, never renamed or moved. An existing PDF is left alone
   unless you add `--force-pdfs`. In the window the PDFs go in `<results name>_pdfs` beside the
   results file.
-- **The naming convention** is a placeholder, `Box12_Folder3_001.pdf` and `Box12_Folder3_list.pdf`.
-  Change it with `--name-template "{box}-{folder}-{release:03d}"` and `--list-name-template`
-  (or edit the two templates at the top of `extractor/catalog.py`).
+- **The naming convention** comes from the metadata template (below) when there is one;
+  otherwise it is a placeholder, `Box12_Folder3_001.pdf` and `Box12_Folder3_list.pdf`.
+  `--name-template "{box}-{folder}-{release:03d}"` and `--list-name-template` override both.
+- **The metadata spreadsheet.** With a template at `local/metadata_template.json` (or
+  `--metadata-template FILE`), every run also writes `<results name>.xlsx`: one row per named
+  release, with the columns the template lists. `local/` is never committed, so the archive's
+  layout stays on this computer; keep a copy of it somewhere safe. The template is JSON:
+
+  ```json
+  {"name_template": "Box{box}_Folder{folder}_{release:03d}",
+   "list_name_template": "Box{box}_Folder{folder}_list",
+   "columns": [["Filename", "{file_name}.pdf"], ["Title", "{title}"],
+               ["Date", "{release_date}"], ["Scanned", "{digitized}"], ["Type", "Text"], ["Notes", ""]]}
+  ```
+
+  Each column is a heading and a value: fixed text, blank (to fill in by hand), or fields from
+  the results CSV in braces. `{title}` is the list-page subject, else the first five words;
+  `{digitized}` is when the source file was made (a PDF's own creation date, a photo's date
+  taken, else the file's date). Every cell is stored as text, so dates stay `yyyy-mm-dd`.
+  After correcting the CSV, rebuild the workbook with `python -m extractor xlsx data/results.csv`.
 
 Check the release boundaries before filing: a release the grouping split or joined wrongly
 shifts every number after it. The rows flagged `needs_review` say where the tool was unsure.

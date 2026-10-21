@@ -13,6 +13,9 @@ output/
 *.pdf
 # Downloaded OCR models
 models/
+# The archive's own metadata template and other local settings
+local/
+*.xlsx
 .venv/
 __pycache__/
 .pytest_cache/

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
 PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 MODEL_FILES = ["models/craft_mlt_25k.pth", "models/english_g2.pth"]
-IMPORTS = "import torch, easyocr, doctr, scipy, cv2, PIL, pypdfium2, pillow_heif"
+IMPORTS = "import torch, easyocr, doctr, scipy, cv2, PIL, pypdfium2, pillow_heif, openpyxl"
 TORCH_INDEX = {"cpu": "https://download.pytorch.org/whl/cpu", "gpu": "https://download.pytorch.org/whl/cu128"}
 
 
