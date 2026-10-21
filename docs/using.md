@@ -158,7 +158,9 @@ Type the box and folder once; the tool numbers the releases for you.
   otherwise it is a placeholder, `Box12_Folder3_001.pdf` and `Box12_Folder3_list.pdf`.
   `--name-template "{box}-{folder}-{release:03d}"` and `--list-name-template` override both.
 - **The metadata spreadsheet.** With a template at `local/metadata_template.json` (or
-  `--metadata-template FILE`), every run also writes `<results name>.xlsx`: one row per named
+  `--metadata-template FILE`; in the window, the **Metadata template** box, which starts out
+  with that file when it exists; `--metadata-template ""` or an empty box for none), every
+  run also writes `<results name>.xlsx`: one row per named
   release, with the columns the template lists. `local/` is never committed, so the archive's
   layout stays on this computer; keep a copy of it somewhere safe. The template is JSON:
 
@@ -174,6 +176,10 @@ Type the box and folder once; the tool numbers the releases for you.
   `{digitized}` is when the source file was made (a PDF's own creation date, a photo's date
   taken, else the file's date). Every cell is stored as text, so dates stay `yyyy-mm-dd`.
   After correcting the CSV, rebuild the workbook with `python -m extractor xlsx data/results.csv`.
+  If you edit the CSV in Excel, save it as **CSV UTF-8**.
+- **One PDF for the whole folder** (as some scanners save it) works the same as one file per
+  page: the tool reads it page by page, finds the list page and the releases inside it, and
+  cuts it into one named PDF per release. Every release in it gets that PDF's date.
 
 Check the release boundaries before filing: a release the grouping split or joined wrongly
 shifts every number after it. The rows flagged `needs_review` say where the tool was unsure.

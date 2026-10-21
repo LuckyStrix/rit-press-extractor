@@ -20,7 +20,7 @@ DEFAULT_OUTPUT = PROJECT_DIR / "data" / "results.csv"
 JOB_RAM_GB = 1.5  # each parallel job loads its own OCR models
 MAX_JOBS = 4
 
-_READ = re.compile(r"^\s+read (?P<file>.+?) p\d+")
+_READ = re.compile(r"^\s+read (?P<page>(?P<file>.+?) p\d+)")
 _RESULT = re.compile(r"^\s+\[(?P<mark>ok|REVIEW)\s*\]")
 _DONE = re.compile(r"^Done\.")
 
@@ -56,18 +56,26 @@ def pdf_dir_for(output: Path) -> Path:
     return output.with_name(output.stem + "_pdfs")
 
 
-def build_command(folder: Path, output: Path, jobs: int, box: str = "", folder_no: str = "") -> list[str]:
+def build_command(folder: Path, output: Path, jobs: int, box: str = "", folder_no: str = "",
+                  template: str = "") -> list[str]:
     cmd = [sys.executable, "-m", "extractor", "process", str(folder), "-o", str(output), "-j", str(jobs)]
     if box and folder_no:  # numbers the releases and writes one named PDF each, next to the results file
         cmd += ["--box", box, "--folder", folder_no, "--pdfs", str(pdf_dir_for(output))]
-    return cmd
+    # Always said outright, so an empty box means no spreadsheet even when local/ has a template.
+    return cmd + ["--metadata-template", template]
+
+
+def default_template() -> str:
+    from .metadata import DEFAULT_TEMPLATE
+
+    return str(DEFAULT_TEMPLATE) if DEFAULT_TEMPLATE.exists() else ""
 
 
 @dataclass
 class RunState:
     """What the window shows, rebuilt from the lines `process` prints."""
-    total_files: int = 0
-    files_seen: set[str] = field(default_factory=set)
+    total_pages: int = 0
+    pages_seen: set[str] = field(default_factory=set)
     releases: int = 0
     review: int = 0
     done: bool = False
@@ -80,14 +88,14 @@ class RunState:
     def fraction(self) -> float:
         if self.done:
             return 1.0
-        return min(len(self.files_seen) / self.total_files, 1.0) if self.total_files else 0.0
+        return min(len(self.pages_seen) / self.total_pages, 1.0) if self.total_pages else 0.0
 
     def feed(self, line: str) -> None:
         line = line.rstrip()
         self.tail = (self.tail + [line])[-8:]
         if m := _READ.match(line):
-            self.files_seen.add(m["file"])
-            self.status = f"Reading {m['file']}  ({len(self.files_seen)} of {self.total_files or '?'} files)"
+            self.pages_seen.add(m["page"])
+            self.status = f"Reading {m['page']}  ({len(self.pages_seen)} of {self.total_pages or '?'} pages)"
         elif m := _RESULT.match(line):
             self.releases += 1
             self.review += m["mark"] == "REVIEW"
@@ -126,6 +134,7 @@ class App:
         root.minsize(640, 420)
         self.folder, self.output = tk.StringVar(), tk.StringVar(value=str(DEFAULT_OUTPUT))
         self.box, self.folder_no = tk.StringVar(), tk.StringVar()
+        self.template = tk.StringVar(value=default_template())
         self._filled = ("", "")  # what the folder name last filled in, to tell it from typed values
         self.folder.trace_add("write", self._refill_filing)
         self.status = tk.StringVar(value="Choose a folder of scans and press Start.")
@@ -137,7 +146,7 @@ class App:
         frame = ttk.Frame(root, padding=12)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(5, weight=1)
+        frame.rowconfigure(7, weight=1)
         ttk.Label(frame, text="Input folder").grid(row=0, column=0, sticky="w", pady=4)
         ttk.Entry(frame, textvariable=self.folder).grid(row=0, column=1, sticky="ew", padx=8)
         ttk.Button(frame, text="Browse…", command=self.pick_folder).grid(row=0, column=2)
@@ -153,8 +162,14 @@ class App:
         ttk.Entry(filing, textvariable=self.folder_no, width=8).pack(side="left")
         ttk.Label(filing, text="  Optional: numbers the releases and saves a named PDF of each").pack(side="left")
 
+        ttk.Label(frame, text="Metadata template").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Entry(frame, textvariable=self.template).grid(row=3, column=1, sticky="ew", padx=8)
+        ttk.Button(frame, text="Browse…", command=self.pick_template).grid(row=3, column=2)
+        ttk.Label(frame, text="Optional: also saves a metadata spreadsheet (.xlsx) beside the results, "
+                  "and may set how the PDFs are named").grid(row=4, column=1, columnspan=2, sticky="w", padx=8)
+
         buttons = ttk.Frame(frame)
-        buttons.grid(row=3, column=0, columnspan=3, sticky="w", pady=8)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="w", pady=8)
         self.start = ttk.Button(buttons, text="Start", command=self.begin)
         self.cancel = ttk.Button(buttons, text="Cancel", command=self.stop, state="disabled")
         self.open_btn = ttk.Button(buttons, text="Open results folder", command=self.show_results, state="disabled")
@@ -162,10 +177,10 @@ class App:
             b.pack(side="left", padx=(0, 8))
 
         self.bar = ttk.Progressbar(frame, maximum=100)
-        self.bar.grid(row=4, column=0, columnspan=3, sticky="ew")
+        self.bar.grid(row=6, column=0, columnspan=3, sticky="ew")
         self.log = scrolledtext.ScrolledText(frame, height=12, state="disabled", font=("TkFixedFont", 9))
-        self.log.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=8)
-        ttk.Label(frame, textvariable=self.status, wraplength=600).grid(row=6, column=0, columnspan=3, sticky="w")
+        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=8)
+        ttk.Label(frame, textvariable=self.status, wraplength=600).grid(row=8, column=0, columnspan=3, sticky="w")
         root.protocol("WM_DELETE_WINDOW", self.close)
 
     # --- choosing files ---
@@ -185,6 +200,12 @@ class App:
         self._filled = infer_box_folder(Path(self.folder.get().strip()))
         self.box.set(self._filled[0])
         self.folder_no.set(self._filled[1])
+
+    def pick_template(self) -> None:
+        from tkinter import filedialog
+
+        if chosen := filedialog.askopenfilename(title="Metadata template", filetypes=[("Template (JSON)", "*.json")]):
+            self.template.set(chosen)
 
     def pick_output(self) -> None:
         from tkinter import filedialog
@@ -215,10 +236,10 @@ class App:
         try:
             from .loader import find_inputs
 
-            total = len(find_inputs([src]))
-        except Exception:  # only the progress bar needs the count
-            total = 0
-        if not total:
+            files = find_inputs([src])
+        except Exception:
+            files = []
+        if not files:
             return self._problem("Input folder", "That folder has no scans or PDFs the tool can read.")
         box, folder_no = self.box.get().strip(), self.folder_no.get().strip()
         if bool(box) != bool(folder_no):
@@ -234,11 +255,27 @@ class App:
             if len({f.parent for f in find_inputs([src])}) > 1:
                 return self._problem("Box / Folder #", "That folder holds several subfolders, and a box and folder "
                                      "number name one physical folder. Choose one subfolder, or clear both fields.")
+        template = self.template.get().strip()
+        if template:
+            from .metadata import Template
+
+            try:
+                Template.load(Path(template))
+            except ValueError as exc:
+                return self._problem("Metadata template", str(exc))
+        total = 0
+        for f in files:  # the progress bar counts pages: one scanner PDF can hold a whole folder
+            from .loader import page_count
+
+            try:
+                total += page_count(f)
+            except Exception:
+                total += 1
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         kwargs = {"creationflags": 0x00000200} if os.name == "nt" else {"start_new_session": True}
-        self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs(), box, folder_no), cwd=PROJECT_DIR, env=env,
+        self.proc = subprocess.Popen(build_command(src, Path(out), default_jobs(), box, folder_no, template), cwd=PROJECT_DIR, env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
-        self.state, self.cancelled = RunState(total_files=total), False
+        self.state, self.cancelled = RunState(total_pages=total), False
         threading.Thread(target=self._reader, args=(self.proc,), daemon=True).start()
         self.start.configure(state="disabled")
         self.cancel.configure(state="normal")

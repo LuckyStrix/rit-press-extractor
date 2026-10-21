@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
 
@@ -15,11 +16,20 @@ UNMATCHED_COLUMNS = ["folder", "list_date", "subject", "printed_date", "review_r
 _lock = threading.Lock()
 
 
+FORMULA_STARTS = ("=", "+", "-", "@")
+
+
 def _safe_cell(value):
-    # Stop spreadsheet apps from treating OCR text as a formula.
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+    # Stop spreadsheet apps from treating OCR text as a formula. Text that already starts with an
+    # apostrophe gets one too, so plain_cell can always undo this exactly.
+    if isinstance(value, str) and value[:1] in (*FORMULA_STARTS, "'"):
         return "'" + value
     return value
+
+
+def plain_cell(value: str) -> str:
+    """The text _safe_cell was given, for a file (the xlsx) that stores text as text."""
+    return value[1:] if value[:1] == "'" and value[1:2] in (*FORMULA_STARTS, "'") else value
 
 
 def _load(path: Path, columns: list[str]) -> list[dict] | None:
@@ -27,29 +37,46 @@ def _load(path: Path, columns: list[str]) -> list[dict] | None:
     the start of today's) is read as-is, its new columns blank; anything else is refused."""
     if not path.exists() or path.stat().st_size == 0:
         return None
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        header = reader.fieldnames or []
-        if header != columns[:len(header)] or not header:
-            raise ValueError(f"{path} has different columns; choose a new output file with -o")
-        return [{c: r.get(c) or "" for c in columns} for r in reader]
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:  # -sig: Excel's "CSV UTF-8" adds a marker
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            if header != columns[:len(header)] or not header:
+                raise ValueError(f"{path} has different columns; choose a new output file with -o")
+            return [{c: r.get(c) or "" for c in columns} for r in reader]  # cells past the header are dropped
+    except UnicodeDecodeError:
+        raise ValueError(f"{path} is not UTF-8 text; if you edited it in Excel, save it as \"CSV UTF-8\"")
 
 
-def _write(path: Path, columns: list[str], rows: list[dict]) -> None:
-    """Replace the file in one step, so an interruption cannot leave half a CSV."""
+def load_results(path: Path) -> list[dict]:
+    """The rows of a results CSV (one this program wrote, maybe corrected by hand since)."""
+    with _lock:
+        return _load(path, COLUMNS) or []
+
+
+def replace_private(path: Path, write: Callable, binary: bool = False) -> None:
+    """Write a file only the current user can read, in one step: write(f) fills a temporary file
+    that then replaces path, so an interruption (or a copy open elsewhere) never leaves half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=columns)
-            writer.writeheader()
-            writer.writerows(rows)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+        with (os.fdopen(fd, "wb") if binary else os.fdopen(fd, "w", newline="", encoding="utf-8")) as f:
+            write(f)
         os.chmod(tmp, 0o600)
         os.replace(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def _write(path: Path, columns: list[str], rows: list[dict]) -> None:
+    def write(f):
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    replace_private(path, write)
 
 
 def _cells(row: Row) -> dict:

@@ -78,8 +78,24 @@ def _init_worker(jobs: int) -> None:
         torch.set_num_threads(max(1, (os.cpu_count() or 1) // jobs))
 
 
-def _process_file(path: Path, lang, opts) -> list:
-    """Every page of one input file as a PageResult (one per page, or one failure result)."""
+def _work_units(files: list[Path]) -> list[tuple[Path, int | None]]:
+    """What one worker reads at a time: a photo, or one page of a PDF (a scanner's PDF can hold
+    a whole folder, which then still spreads over the workers and shows its progress)."""
+    from .loader import PDF_EXTS, page_count
+
+    units: list[tuple[Path, int | None]] = []
+    for f in files:
+        try:
+            n = page_count(f) if f.suffix.lower() in PDF_EXTS else 0
+        except Exception:  # unreadable: read whole, so the failure is recorded like any other
+            n = 0
+        units += [(f, p) for p in range(1, n + 1)] if n else [(f, None)]
+    return units
+
+
+def _process_file(path: Path, lang, opts, only: int | None = None) -> list:
+    """Every page of one input file (or just page `only` of a PDF) as a PageResult (one per page,
+    or a failure result). Pages are rendered one at a time, so a long PDF needs no more memory."""
     from .loader import load_pages
     from .pages import PageSignals
     from .pipeline import PageResult, analyze_page, failed_row
@@ -91,12 +107,17 @@ def _process_file(path: Path, lang, opts) -> list:
         row.page = page_no
         return page_no, PageResult(row, PageSignals(starts=True))  # a failed page stands alone
 
-    try:
-        pages = list(load_pages(path))
-    except Exception as exc:  # unreadable/corrupt file: record it so nothing goes missing
-        return [failed(1, f"could not open file: {exc}")]
     results = []
-    for page_no, img in pages:
+    pages = load_pages(path, only)
+    while True:
+        try:
+            page_no, img = next(pages)
+        except StopIteration:
+            break
+        except Exception as exc:  # unreadable/corrupt file or page: record it so nothing goes missing
+            page_no = only or len(results) + 1
+            results.append(failed(page_no, f"could not {'read page' if results else 'open file'}: {exc}"))
+            break
         try:
             results.append((page_no, analyze_page(img, path.name, page_no, item, lang, opts)))
         except Exception as exc:  # one bad page must not stop the batch; record it for review
@@ -118,10 +139,15 @@ def _finish_folder(folder_path: Path, pages: list, out: Path, naming_args=None) 
         from .catalog import apply_names
 
         pdfs = apply_names(result, naming)
-    from .metadata import digitized_date
+    if getattr(naming_args, "template", None):  # only the metadata spreadsheet uses it
+        from .metadata import digitized_date
 
-    for row, pages in zip(result.rows, result.release_pages):
-        row.digitized = digitized_date(folder_path / pages[0][0])
+        dates: dict[str, str] = {}  # one PDF can hold many releases; read its date once
+        for row, pages in zip(result.rows, result.release_pages):
+            file = pages[0][0]
+            if file not in dates:
+                dates[file] = digitized_date(folder_path / file)
+            row.digitized = dates[file]
     merge_rows(out, result.rows, result.consumed, name)
     unmatched_path = out.with_name(out.stem + "_unmatched_subjects.csv")
     write_unmatched(unmatched_path, name, result.unmatched)
@@ -170,8 +196,23 @@ def _naming_for(folder_path: Path, args):
                   args.list_name_template or (local and local.list_name_template) or LIST_TEMPLATE)
 
 
+def _template(args):
+    """The metadata template: --metadata-template FILE, none for --metadata-template "", else the default one."""
+    from .metadata import load_template
+
+    if args.metadata_template == "":
+        return None
+    return load_template(Path(args.metadata_template) if args.metadata_template else None)
+
+
 def _xlsx_path(args, out: Path) -> Path:
-    return Path(args.xlsx) if args.xlsx else out.with_suffix(".xlsx")
+    """Where the metadata spreadsheet goes; never onto the results CSV."""
+    xlsx = Path(args.xlsx) if args.xlsx else out.with_suffix(".xlsx")
+    if xlsx.suffix.lower() != ".xlsx":
+        raise ValueError(f"The metadata spreadsheet must be an .xlsx file (got {xlsx}).")
+    if xlsx.resolve() == out.resolve():
+        raise ValueError("The metadata spreadsheet and the results CSV must be different files.")
+    return xlsx
 
 
 def _write_xlsx(out: Path, template, xlsx: Path) -> None:
@@ -179,6 +220,9 @@ def _write_xlsx(out: Path, template, xlsx: Path) -> None:
 
     try:
         count = write_xlsx(out, template, xlsx)
+    except ValueError as exc:  # a results CSV it cannot use, e.g. re-saved in another format
+        print(f"FAILED to write {xlsx}: {exc}", flush=True)
+        return
     except OSError as exc:  # e.g. the workbook is open in Excel; the CSV is saved either way
         print(f"FAILED to write {xlsx} ({exc}); close it if it is open, then run: "
               f"python -m extractor xlsx \"{out}\"", flush=True)
@@ -206,12 +250,12 @@ def cmd_process(args) -> int:
         return 1
     opts = _options(args)
     try:
-        from .metadata import load_template
-
-        args.template = load_template(Path(args.metadata_template) if args.metadata_template else None)
+        args.template = _template(args)
         if args.xlsx and not args.template:
             raise ValueError("--xlsx needs a metadata template: put one at local/metadata_template.json "
                              "or pass --metadata-template (see docs/using.md).")
+        if args.template:
+            _xlsx_path(args, out)  # a bad spreadsheet path stops the run before the long part
         labels: dict[tuple[str, str], Path] = {}
         unlabelled = []
         for d in sorted({f.parent for f in files}):
@@ -238,20 +282,24 @@ def cmd_process(args) -> int:
         print("--box/--folder name one physical folder, but the inputs span several folders. "
               "Run them separately, or name the folders like 'Box 12/Folder 3'.", file=sys.stderr)
         return 2
+    pool = None
     if args.jobs > 1:
         import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor
 
         # "spawn": safe with CUDA; each worker loads its own OCR models once.
         pool = ProcessPoolExecutor(args.jobs, mp.get_context("spawn"), _init_worker, (args.jobs,))
-        results = pool.map(_process_file, files, [args.lang] * len(files), [opts] * len(files))
+    units = _work_units(files)
+    if args.jobs > 1:
+        results = pool.map(_process_file, [u[0] for u in units], [args.lang] * len(units), [opts] * len(units),
+                           [u[1] for u in units])
     else:
-        pool, results = None, (_process_file(f, args.lang, opts) for f in files)
+        pool, results = None, (_process_file(f, args.lang, opts, p) for f, p in units)
     flagged = 0
     folders: dict[Path, list] = {}
-    last_file = {f.parent: f for f in files}  # a folder is finished after its last file
+    last_unit = {u[0].parent: i for i, u in enumerate(units)}  # a folder is finished after its last unit
     try:
-        for path, path_results in zip(files, results):  # in input order
+        for i, ((path, _), path_results) in enumerate(zip(units, results)):  # in input order
             pages = folders.setdefault(path.parent, [])
             for page_no, res in path_results:
                 pages.append(PageIn(path.name, page_no, res.row.item_number if res.row else "", res))
@@ -260,7 +308,7 @@ def cmd_process(args) -> int:
                     print(f"  read {path.name} p{page_no}", flush=True)
                 else:
                     print(f"  read {path.name} p{page_no} (list page)", flush=True)
-            if last_file[path.parent] == path:
+            if last_unit[path.parent] == i:
                 flagged += _finish_folder(path.parent, folders.pop(path.parent), out, args)
     finally:
         if pool:
@@ -272,11 +320,9 @@ def cmd_process(args) -> int:
 
 
 def cmd_xlsx(args) -> int:
-    from .metadata import load_template
-
     out = Path(args.results)
     try:
-        template = load_template(Path(args.metadata_template) if args.metadata_template else None)
+        template = _template(args)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -287,7 +333,12 @@ def cmd_xlsx(args) -> int:
     if not out.exists():
         print(f"{out} does not exist.", file=sys.stderr)
         return 1
-    _write_xlsx(out, template, _xlsx_path(args, out))
+    try:
+        xlsx = _xlsx_path(args, out)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    _write_xlsx(out, template, xlsx)
     return 0
 
 
@@ -385,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
                    "template's, else Box{box}_Folder{folder}_{release:03d})")
     g.add_argument("--list-name-template", help="list page PDF name; {box} {folder}")
     g.add_argument("--metadata-template", metavar="JSON", help="metadata spreadsheet layout (and PDF naming); "
-                   "default local/metadata_template.json when it exists")
+                   "default local/metadata_template.json when it exists; \"\" for none")
     g.add_argument("--xlsx", metavar="FILE", help="where to write the metadata spreadsheet "
                    "(default: the results file with .xlsx); written whenever there is a template")
     add_ocr_options(s)

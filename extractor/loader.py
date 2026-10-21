@@ -35,12 +35,25 @@ def find_inputs(paths: list[Path]) -> list[Path]:
     return found
 
 
-def load_pages(path: Path) -> Iterator[tuple[int, Image.Image]]:
-    """Yield (1-based page number, RGB image) for every page in the file."""
+def page_count(path: Path) -> int:
+    """How many pages load_pages yields, without rendering any."""
     if path.suffix.lower() in PDF_EXTS:
         pdf = pdfium.PdfDocument(path)
         try:
-            for i in range(len(pdf)):
+            return len(pdf)
+        finally:
+            pdf.close()
+    with Image.open(path) as img:
+        return 1 if img.format == "MPO" else getattr(img, "n_frames", 1)
+
+
+def load_pages(path: Path, only: int | None = None) -> Iterator[tuple[int, Image.Image]]:
+    """Yield (1-based page number, RGB image) for every page in the file, one at a time (a
+    scanner's PDF can hold a whole folder). With only, just that page of a PDF."""
+    if path.suffix.lower() in PDF_EXTS:
+        pdf = pdfium.PdfDocument(path)
+        try:
+            for i in [only - 1] if only else range(len(pdf)):
                 yield i + 1, pdf[i].render(scale=PDF_DPI / 72).to_pil().convert("RGB")
         finally:
             pdf.close()

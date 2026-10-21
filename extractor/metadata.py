@@ -13,7 +13,6 @@ results CSV, so corrections made there carry over (python -m extractor xlsx resu
 """
 from __future__ import annotations
 
-import csv
 import datetime as dt
 import json
 import os
@@ -31,6 +30,9 @@ class Template:
     def __init__(self, data: dict, source: str = "template"):
         from .output import COLUMNS
 
+        for key in ("name_template", "list_name_template"):
+            if not isinstance(data.get(key) or "", str):
+                raise ValueError(f"{source}: {key!r} must be text, like \"Box{{box}}_Folder{{folder}}_{{release:03d}}\".")
         self.name_template = data.get("name_template") or None
         self.list_name_template = data.get("list_name_template") or None
         cols = data.get("columns")
@@ -49,8 +51,10 @@ class Template:
     @classmethod
     def load(cls, path: Path) -> "Template":
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except OSError as exc:
+            raise ValueError(f"Cannot read the metadata template {path}: {exc.strerror or exc}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ValueError(f"{path} is not valid JSON: {exc}")
         if not isinstance(data, dict):
             raise ValueError(f"{path} must hold one JSON object.")
@@ -113,15 +117,17 @@ def _file_date(path: Path) -> str:
 def write_xlsx(csv_path: Path, template: Template, xlsx_path: Path) -> int:
     """Rebuild the workbook from the results CSV: one row per release that has a file name, in
     CSV order. Every cell is text, so dates stay yyyy-mm-dd and nothing is read as a formula.
-    Returns the number of rows."""
+    Returns the number of rows; a CSV it cannot use raises ValueError."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r.get("file_name")]
+    from .output import load_results, plain_cell, replace_private
+
+    rows = [r for r in load_results(csv_path) if r["file_name"]]
     wb = Workbook()
     ws = wb.active
-    for values in [[h for h, _ in template.columns]] + [template.row(_unescape(r)) for r in rows]:
+    for values in [[h for h, _ in template.columns]] + [
+            template.row({k: plain_cell(v) for k, v in r.items()}) for r in rows]:
         ws.append(values)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -129,17 +135,5 @@ def write_xlsx(csv_path: Path, template: Template, xlsx_path: Path) -> int:
         for cell in row:
             cell.data_type, cell.number_format = "s", "@"
     ws.freeze_panes = "A2"
-    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = xlsx_path.with_name(f"{xlsx_path.name}.{os.getpid()}.tmp")
-    try:
-        wb.save(tmp)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, xlsx_path)  # an open copy or an interruption never leaves half a workbook
-    finally:
-        tmp.unlink(missing_ok=True)
+    replace_private(xlsx_path, wb.save, binary=True)
     return len(rows)
-
-
-def _unescape(row: dict) -> dict:
-    """The CSV quotes text that looks like a formula ("'=..."); the xlsx stores text as text."""
-    return {k: (v[1:] if isinstance(v, str) and v[:2] in ("'=", "'+", "'-", "'@") else v or "") for k, v in row.items()}

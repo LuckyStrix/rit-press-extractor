@@ -97,3 +97,43 @@ def test_folder_with_list_page_and_two_page_release(tmp_path):
     assert c["subject"] == "" and c["needs_review"] == "YES" and "no subject found" in c["review_reasons"]
     unmatched = list(csv.DictReader(open(tmp_path / "r_unmatched_subjects.csv", newline="")))
     assert [u["subject"] for u in unmatched] == ["Football schedule"]
+
+
+def test_one_pdf_holding_the_whole_folder(tmp_path):
+    """A scanner's single PDF: the list page and every release in one file, read page by page."""
+    import csv
+    import json
+
+    from openpyxl import load_workbook
+
+    from extractor.cli import main
+
+    from .samples import LIST_PAGE, render_lines, wrapped
+
+    folder = tmp_path / "Box 12" / "Folder 3"
+    folder.mkdir(parents=True)
+    header = ["NEWS from ROCHESTER INSTITUTE OF TECHNOLOGY", "", "FOR IMMEDIATE RELEASE"]
+    first = [*header, "November 2, 1970", "", *wrapped(
+        "SUSAN WOLF, A STUDENT IN THE COLLEGE OF APPLIED SCIENCE, WILL BEGIN A CO-OP ASSIGNMENT WITH A LOCAL "
+        "FIRM NEXT MONTH. SHE IS THE DAUGHTER OF MR. AND MRS. JAMES WOLF OF ROCHESTER."), "", "-30-"]
+    second = [*header, "November 3, 1970", "", *wrapped(
+        "THE INSTITUTE'S WINTER SPORTS PROGRAM WILL OPEN ITS SEASON WITH A HOME GAME ON SATURDAY. TICKETS ARE "
+        "AVAILABLE AT THE DOOR AND THE PUBLIC IS INVITED TO ATTEND THE OPENING CEREMONIES."), "", "-30-"]
+    pages = [render_lines(lines) for lines in (LIST_PAGE, first, second)]
+    pages[0].save(folder / "scan.pdf", save_all=True, append_images=pages[1:], resolution=300)
+    template = tmp_path / "t.json"
+    template.write_text(json.dumps({"name_template": "t_b{box}_f{folder}_{release:04d}",
+                                    "columns": [["Filename", "{file_name}.pdf"], ["Made", "{digitized}"]]}))
+    out = tmp_path / "r.csv"
+    assert main(["process", str(folder), "-o", str(out), "--engines", "tesseract", "--reread", "off",
+                 "--pdfs", str(tmp_path / "pdfs"), "--metadata-template", str(template)]) == 0
+
+    rows = list(csv.DictReader(open(out, newline="")))
+    assert [(r["file"], r["page"], r["file_name"]) for r in rows] == [
+        ("scan.pdf", "2", "t_b12_f3_0001"), ("scan.pdf", "3", "t_b12_f3_0002")]
+    assert rows[0]["subject"] == "Susan Wolf - Co-op"
+    assert sorted(p.name for p in (tmp_path / "pdfs").iterdir()) == [
+        "Box12_Folder3_list.pdf", "t_b12_f3_0001.pdf", "t_b12_f3_0002.pdf"]
+    sheet = [[c.value for c in r] for r in load_workbook(tmp_path / "r.xlsx").active.iter_rows()]
+    assert [r[0] for r in sheet] == ["Filename", "t_b12_f3_0001.pdf", "t_b12_f3_0002.pdf"]
+    assert sheet[1][1] == sheet[2][1] and len(sheet[1][1]) == 10  # both from the one PDF, yyyy-mm-dd
