@@ -6,10 +6,10 @@ from dataclasses import asdict, dataclass, replace
 from PIL import Image
 
 from . import ocr
-from .layout import body_words, find_slug
+from .layout import HEADER_CUE, body_words, find_slug
 from .models import Line
-from .pages import PageSignals, page_signals
-from .listpage import is_list_page
+from .pages import HEAD, PageSignals, page_signals
+from .listpage import day_column, is_list_page, with_days
 from .reread import regions_from, reread, reread_trocr
 from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
@@ -126,9 +126,12 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         reasons.append(f"best model for '{tess_lang}' not installed (setup --tess-best); used standard model")
     if lines is None:
         lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
-    signals = page_signals(lines)
     if detect_list and is_list_page(lines):
-        return PageResult(None, signals, list_lines=lines)
+        if box := day_column(lines):
+            lines = with_days(lines, ocr.tesseract_digits(page_img, box))
+        return PageResult(None, page_signals(lines), list_lines=lines)
+    lines = _sparse_header(page_img, lines, tess_lang, best)
+    signals = page_signals(lines)
     # Assume English (nearly every release is); switch only when another language clearly wins.
     detected, margin = detect_language(" ".join(ln.text for ln in lines))
     lang = "en"
@@ -197,6 +200,22 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         slug=slug, opening_text=opening,
     )
     return PageResult(row, signals, slug, opening)
+
+
+def _sparse_header(page_img: Image.Image, lines: list[Line], tess_lang: str, best: bool) -> list[Line]:
+    """A page with neither a release header nor a page number at the top would be joined to the
+    release before it. When a date is typed just above "FOR IMMEDIATE RELEASE", Tesseract can
+    read the two as one garbled line and drop it, so look again in sparse-text mode (which keeps
+    such lines apart) and, if that finds a release line, use its reading of the header."""
+    signals = page_signals(lines)
+    if signals.starts or signals.cont:
+        return lines
+    sparse = ocr.tesseract_lines(page_img, tess_lang, psm=11, best=best)
+    cues = [ln for ln in sparse[:HEAD] if HEADER_CUE.search(ln.text)]
+    if not cues:
+        return lines
+    cut = max(ln.box[3] for ln in cues)
+    return [ln for ln in sparse if ln.box[3] <= cut] + [ln for ln in lines if ln.box[1] > cut]
 
 
 def _check_start(t_lines, t_start) -> str | None:

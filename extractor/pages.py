@@ -21,10 +21,10 @@ _DASH = r"[-–—_~]"
 _PAGE_NUMBER = [
     re.compile(r"^\W*(?:page\s*)?(\d{1,2})\W*$", re.I),  # "2", "Page 2", "- 2 -"
     re.compile(r"\bpage\s+(\d{1,2})\b", re.I),
-    re.compile(rf"(?:^|\s){_DASH}\s*(\d{{1,2}})\s*{_DASH}?\s*$"),  # "RIT News Release - 2"
+    re.compile(rf"(?:^|\s){_DASH}+\s*(\d{{1,2}})\s*{_DASH}?\s*$"),  # "RIT News Release - 2", "add ~- 2"
 ]
 _CONTINUED = re.compile(r"\(?\bcont(?:inued|'d)\b\)?", re.I)
-_MORE = re.compile(r"^[\W_]*\(?\s*more\s*\)?[\W_]*$", re.I)
+_MORE = re.compile(r"^[\W_]*\(?\s*[mn]ore\s*\)?[\W_]*$", re.I)  # OCR reads "-more-" as "=nore=" too
 
 
 @dataclass

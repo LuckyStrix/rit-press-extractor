@@ -91,6 +91,11 @@ ending `-more-` joins it to the release before it. A page ending `-30-` or `###`
 its release. Where none of these decide it, the page is joined and flagged, because a wrong
 split costs an extra row to review while a wrong join would hide a release.
 
+When a date is typed tight above "For immediate release", the first OCR pass can run the two
+lines together and lose both, so a page that shows no header and no page number is read once
+more in sparse-text mode, which keeps such lines apart, before it is joined to the release
+before it.
+
 ## What "verified" means
 
 A field is marked verified (and the row isn't flagged for it) only when **all**

@@ -4,7 +4,8 @@ The garbled dates below are the kinds of misreads seen on real typed lists; name
 """
 import datetime as dt
 
-from extractor.listpage import is_list_page, parse_list_pages
+from extractor.listpage import day_column, is_list_page, parse_list_pages, with_days
+from extractor.models import Word
 
 from .test_units import layout_page, mkpage
 
@@ -104,3 +105,64 @@ def test_year_comes_from_the_caller_when_no_page_prints_it():
 
 def test_header_and_blank_pages_make_no_entries():
     assert parse_list_pages([page()]).entries == []
+
+
+# A list that prints only the day, in a "Date" column apart from the subject, wraps long
+# subjects onto indented lines set closer together than the entries, and adds notes in an
+# "Additional Info." column. Laid out like a real July 1969 list (12px characters, 30px lines).
+def column_page(*entries: tuple[str, list[str], list[str]]):
+    rows = [(400, 100, "NEWS RELEASES SENT OUT"), (180, 160, "MONTH July 1969"),
+            (150, 240, "Date"), (420, 240, "Subject"), (800, 240, "Additional Info.")]
+    days, y = [], 330
+    for day, subject, info in entries:
+        if day:
+            days.append(Word(day, 96.0, (150, y, 150 + 12 * len(day), y + 30)))
+        for k in range(max(len(subject), len(info))):
+            if k < len(subject):
+                rows.append((260 if k == 0 else 290, y, subject[k]))
+            if k < len(info) and info[k]:
+                rows.append((800, y, info[k]))
+                if k == 0 and info[k].startswith("TU"):
+                    rows.append((740, y, "r"))  # a speck of the column rule, read as a letter
+            y += 40
+        y += 50
+    return layout_page(rows), days
+
+
+COLUMNS = column_page(
+    ("", ["Dr. Jane Doe - NTID appointment"], ["TU & D&C - special list"]),
+    ("11", ["Mrs. Ann Smith named publications", "editor"], ["", "local media"]),
+    ("14", ["Alan Brown RIT school of printing", "appointed to the Cary chair"], ["", "local media", "trade journals"]),
+    ("22", ["Joan Black appointed to the art faculty"], ["local media"]),
+    ("29", ["Two students head for Belgrade", "in August for", "the World Games for the Deaf"],
+     ["", "", "local media and hometowns", "Dr. Green (of course)"]),
+)
+
+
+def test_days_in_their_own_column_are_read_on_their_own():
+    lines, days = COLUMNS
+    box = day_column(lines)
+    assert box is not None and box[2] < 260  # left of the subjects
+    assert all(box[0] <= w.box[0] and w.box[2] <= box[2] for w in days)
+    assert day_column(PAGE1) is None  # dates typed at the start of each row
+
+
+def test_day_column_rows_wrapped_subjects_and_additional_info():
+    lines, days = COLUMNS
+    result = parse_list_pages([with_days(lines, days)])
+    got = [(e.date.isoformat() if e.date else None, e.subject) for e in result.entries]
+    assert got == [
+        (None, "Dr. Jane Doe - NTID appointment"),  # its day was not read
+        ("1969-07-11", "Mrs. Ann Smith named publications editor"),
+        ("1969-07-14", "Alan Brown RIT school of printing appointed to the Cary chair"),
+        ("1969-07-22", "Joan Black appointed to the art faculty"),
+        ("1969-07-29", "Two students head for Belgrade in August for the World Games for the Deaf"),
+    ]
+    assert (result.year, result.month) == (1969, 7)
+    assert all(not e.flags for e in result.entries[1:])
+
+
+def test_evenly_spaced_undated_rows_stay_entries_of_their_own():
+    # On a single-spaced list an undated row is another release on the same day, not a wrap.
+    result = parse_list_pages([PAGE2])
+    assert "Robert Peters - Co-op" in [e.subject for e in result.entries]

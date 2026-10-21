@@ -147,6 +147,22 @@ def tesseract_lines(img: Image.Image, lang: str, psm: int = 3, threshold: int = 
     return merge_rows(kept)
 
 
+def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int]) -> list[Word]:
+    """Numbers in one region (a column of days), in page coordinates. Read on their own because
+    in a full-page read Tesseract often drops one or two digits standing apart from the text."""
+    x0, y0, _, _ = box
+    tsv = _run_tesseract(img.crop(box), [
+        "-l", "eng", "--psm", "6", "--dpi", "300", "-c", "tessedit_char_whitelist=0123456789",
+        "-c", "tessedit_create_tsv=1", "-c", "tessedit_create_txt=0",
+    ])
+    words = []
+    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE):
+        if row["level"] == "5" and (text := (row.get("text") or "").strip()):
+            x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
+            words.append(Word(text, float(row["conf"]), (x0 + x, y0 + y, x0 + x + w, y0 + y + h)))
+    return words
+
+
 @lru_cache(maxsize=4)
 def _easy_reader(langs: tuple[str, ...]):
     import easyocr  # heavy import; only load when needed

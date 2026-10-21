@@ -114,6 +114,11 @@ entries it found.
   and the year is only printed on the first page. The tool rebuilds each date from the
   header month, the list's year and the entry above, and flags every repair in the
   unmatched-entries report.
+- **Lists laid out in columns work too.** Some lists print only the day in a "Date" column
+  (with the month and year on the `MONTH` line), wrap a long subject onto further lines, and
+  add notes in an "Additional Info." column. The day column is read on its own, a wrapped line
+  is joined to its entry because it sits closer to the line above than entries do, and the
+  notes are left out of the subject.
 - **A subject is only given when the evidence clearly favours it.** If two entries fit a
   release equally well, the `subject` cell stays empty and the reasons name the candidates.
   A release with no list entry is flagged.
