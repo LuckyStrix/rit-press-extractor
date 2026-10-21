@@ -106,3 +106,31 @@ def test_claims_that_are_too_close_are_still_ambiguous_not_shared():
     entries = [entry(9, "Football - Siena"), entry(9, "Football - Union")]
     res = match_subjects([release("a", 9, "", "Football fans will see the finale")], entries)
     assert res.matches["a"].entry is None and not res.matches["a"].shared
+
+
+def test_a_release_its_day_cannot_settle_falls_back_to_text():
+    # The list's day was misread (29 as 20): the day's only entry is someone else's.
+    entries = [entry(19, "Bio-Medical Photography grant"), entry(20, "Hermann Zapf, designer")]
+    releases = [release("a", 19, "", "Hermann Zapf, internationally-known type designer, will give a lecture"),
+                release("b", 19, "", "A grant for bio-medical photography from the Public Health Service")]
+    res = match_subjects(releases, entries)
+    assert res.matches["b"].entry == 0
+    m = res.matches["a"]
+    assert (m.entry, m.method, m.confident) == (1, "text", False)
+
+
+def test_copies_of_one_release_both_get_its_subject_and_are_flagged():
+    entries = [entry(28, "Additions to the School of Printing"), entry(28, "Football schedule")]
+    text = "Three additions to the School of Printing faculty have been announced by the director"
+    res = match_subjects([release("a", 28, "", text), release("b", 28, "", text)], entries)
+    for k in "ab":
+        m = res.matches[k]
+        assert (m.entry, m.confident, m.shared, m.duplicate) == (0, True, False, True), k
+
+
+def test_a_release_its_day_cannot_settle_still_lists_a_near_entry_from_another_day():
+    entries = [entry(19, "Bio-Medical Photography grant"), entry(20, "Leadership Development Workshop Series")]
+    releases = [release("a", 19, "", "Inner-city leadership goals will be explored, part of a Leadership Development"),
+                release("b", 19, "", "A grant for bio-medical photography from the Public Health Service")]
+    m = match_subjects(releases, entries).matches["a"]
+    assert m.entry is None and m.candidates == [1]

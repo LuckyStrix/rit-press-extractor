@@ -9,7 +9,8 @@ from . import ocr
 from .layout import HEADER_CUE, body_words, find_slug
 from .models import Line
 from .pages import HEAD, PageSignals, page_signals
-from .listpage import day_column, is_list_page, with_days
+from .listpage import (day_column, has_month_line, header_band, is_list_page, missing_day_cells, with_days,
+                       with_month_line)
 from .reread import regions_from, reread, reread_trocr
 from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
@@ -127,8 +128,13 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     if lines is None:
         lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
     if detect_list and is_list_page(lines):
+        if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
+            lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), tess_lang, psm=11, best=best))
         if box := day_column(lines):
-            lines = with_days(lines, ocr.tesseract_digits(page_img, box))
+            days = ocr.tesseract_digits(page_img, box)
+            for cell in missing_day_cells(with_days(lines, days), box):
+                days += ocr.tesseract_digits(page_img, cell, cell=True)
+            lines = with_days(lines, days)
         return PageResult(None, page_signals(lines), list_lines=lines)
     lines = _sparse_header(page_img, lines, tess_lang, best)
     signals = page_signals(lines)

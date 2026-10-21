@@ -84,14 +84,36 @@ MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "
 
 
 def _header_month(lines: list[Line]) -> str | None:
-    """The month named on the "MONTH ......" line, if the whole word is readable."""
+    """The month named on the "MONTH ......" line, if the whole word is readable. A sparse read
+    can split the typed word ("Aug ust"), so two neighbouring tokens are also tried joined."""
     for ln in lines[:6]:
         toks = _norm(ln.text).split()
         if toks and _near(toks[0], ["month"], 0.7):
-            for t in toks[1:]:
+            for t in toks[1:] + [a + b for a, b in zip(toks[1:], toks[2:])]:
                 if close := difflib.get_close_matches(t, MONTH_NAMES, 1, 0.8):
                     return close[0][:3]
     return None
+
+
+def has_month_line(lines: list[Line]) -> bool:
+    """Was the "MONTH ......" line read with its month or year? Tesseract can drop the whole
+    line when the month is typed above a dotted rule."""
+    return bool(_header_month(lines) or _header_year(lines))
+
+
+def header_band(lines: list[Line]) -> Box | None:
+    """The page above the column headings, where the "MONTH" line is typed."""
+    head = _header_row(lines)
+    return None if head is None else (0, 0, max(ln.box[2] for ln in lines), lines[head].box[1])
+
+
+def with_month_line(lines: list[Line], sparse: list[Line]) -> list[Line]:
+    """Add the "MONTH" line from a second read of the header band, when it names a month."""
+    month = next((ln for ln in sparse if _header_month([ln]) or _header_year([ln])), None)
+    if month is None:
+        return lines
+    head = _header_row(lines) or 0
+    return lines[:head] + [month] + lines[head:]
 
 
 def _header_year(lines: list[Line]) -> int | None:
@@ -116,33 +138,57 @@ def _height(lines: list[Line]) -> float:
 
 def day_column(lines: list[Line]) -> Box | None:
     """Where the days sit on a list that prints them alone in a "Date" column, apart from the
-    subjects. The OCR tends to drop such short numbers, so the column is read on its own."""
+    subjects. The OCR tends to drop such short numbers, so the column is read on its own.
+    Tesseract can drop the "Date" heading too; then the column is whatever lies left of the
+    subjects, which is only margin on a list that types its dates at the start of each row."""
     head = _header_row(lines)
     if head is None:
         return None
     date_word = next((w for w in lines[head].words if _norm(w.text) == "date"), None)
     rows = [ln for ln in lines[head + 1:] if ln.words]
-    if date_word is None or not rows:
+    if not rows:
         return None
     left = min(ln.box[0] for ln in rows)
+    if date_word is None:
+        right = left - round(_height(rows))
+        return (0, lines[head].box[3], right, max(ln.box[3] for ln in rows)) if right > 0 else None
     if left < date_word.box[2]:
         return None  # the dates are typed at the start of each row
     return 0, lines[head].box[3], (date_word.box[2] + left) // 2, max(ln.box[3] for ln in rows)
 
 
 def with_days(lines: list[Line], days: list[Word]) -> list[Line]:
-    """Put each day read from the "Date" column at the front of the row it sits beside."""
+    """Put each day read from the "Date" column at the front of the row it sits beside. A punch
+    hole or smudge in the margin can read as a digit; it is far taller than the typed days or
+    stands away from their column, so it is left out."""
     out = [Line(list(ln.words)) for ln in lines]
+    days = [w for w in days if _DAY.match(w.text)]
+    if days:
+        height = _height([Line(days)])
+        mid = sorted((w.box[0] + w.box[2]) / 2 for w in days)[len(days) // 2]
+        days = [w for w in days if w.box[3] - w.box[1] <= 1.6 * height
+                and abs((w.box[0] + w.box[2]) / 2 - mid) <= 3 * height]
     for w in days:
-        if not _DAY.match(w.text):
-            continue
-        for ln in out:
-            y0, y1 = ln.box[1], ln.box[3]
-            if min(y1, w.box[3]) - max(y0, w.box[1]) > 0.5 * min(y1 - y0, w.box[3] - w.box[1]):
-                if not (ln.words and _DAY.match(ln.words[0].text)):
-                    ln.words.insert(0, w)
-                break
+        # A speck can be read as a short line of its own beside the row; the day goes to the
+        # line it overlaps most.
+        overlaps = [(min(ln.box[3], w.box[3]) - max(ln.box[1], w.box[1]), ln) for ln in out if ln.words]
+        overlap, ln = max(overlaps, key=lambda o: o[0], default=(0, None))
+        if ln and overlap > 0.5 * min(ln.box[3] - ln.box[1], w.box[3] - w.box[1]):
+            if not _DAY.match(ln.words[0].text):
+                ln.words.insert(0, w)
     return out
+
+
+def missing_day_cells(lines: list[Line], column: Box) -> list[Box]:
+    """The "Date" column beside each row that starts at the subjects' left edge but got no
+    day from the column read, to be read again one at a time."""
+    x0, y0, x1, y1 = column
+    rows = [ln for ln in lines if ln.words and ln.box[0] > x1 and y0 <= ln.box[1] and ln.box[3] <= y1]
+    if not rows:
+        return []
+    left, height = min(ln.box[0] for ln in rows), _height(rows)
+    return [(x0, ln.box[1], x1, ln.box[3]) for ln in rows
+            if ln.box[0] <= left + 3 * height and not _DAY.match(ln.words[0].text)]
 
 
 def _additional_x(lines: list[Line], head: int | None) -> int | None:
@@ -197,43 +243,43 @@ def _month_of(token: str, month: str | None) -> str | None:
     return tok if tok in ABBR else None
 
 
-def _rows(page_no: int, lines: list[Line], month: str | None) -> tuple[list[_Row], str | None]:
+def _rows(page_no: int, lines: list[Line], month: str | None,
+          default_month: str | None = None) -> tuple[list[_Row], str | None]:
     month = _header_month(lines) or month
     head = _header_row(lines)
     start = head + 1 if head is not None else 0
     if month is None:  # no readable header month: the commonest cleanly printed one on this page
         seen = Counter(m["mon"].lower()[:3] for ln in lines[start:] if (m := _STRICT_ROW.match(ln.text))
                        and m["mon"].lower()[:3] in ABBR)
-        month = seen.most_common(1)[0][0] if seen else None
+        month = seen.most_common(1)[0][0] if seen else default_month
     additional_x, height = _additional_x(lines, head), _height(lines[start:])
-    rows: list[_Row] = []
-    tops: list[tuple[int, int]] = []  # tops of each row's first and last lines, to spot wrapped lines
+    read: list[tuple[int, _Row]] = []  # each line's top and its reading
     for i, ln in enumerate(lines[start:], start):
         words = _subject_words(ln, additional_x, height)
         text = " ".join(w.text for w in words).strip()
         if len(re.sub(r"[\W_]", "", text)) < 3:
             continue
-        line = Line(words)
-        top, row = ln.box[1], _row(page_no, i, line, text, month, height)
-        if row.abbr is None and row.day is None and rows and _wrapped(top, tops, rows):
+        read.append((ln.box[1], _row(page_no, i, Line(words), text, month, height)))
+    pitch = _entry_pitch(read)
+    rows: list[_Row] = []
+    last_top = 0  # top of the last line of the entry above
+    for top, row in read:
+        # A wrapped subject is typed closer to the line above it than entries are to each other.
+        if row.abbr is None and row.day is None and rows and pitch and top - last_top < WRAP_PITCH * pitch:
             prev = rows[-1]
             prev.subject = _tidy(f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
-            tops[-1] = (tops[-1][0], top)
-            continue
-        rows.append(row)
-        tops.append((top, top))
+        else:
+            rows.append(row)
+        last_top = top
     return rows, month
 
 
-def _wrapped(top: int, tops: list[tuple[int, int]], rows: list[_Row]) -> bool:
-    """Is an undated line the next line of the entry above? A wrapped subject is typed closer
-    to the line above it than entries are to each other. Without dated entries to measure that
-    spacing, the line is taken as an entry of its own."""
-    pitches = sorted(t[0] - p[1] for t, p, r in zip(tops[1:], tops, rows[1:]) if r.abbr or r.day)
-    if not pitches:
-        return False
-    return top - tops[-1][1] < WRAP_PITCH * pitches[len(pitches) // 2]
+def _entry_pitch(read: list[tuple[int, _Row]]) -> float | None:
+    """The page's usual spacing between entries: from each dated line back to the line above.
+    Without dated entries to measure it, every undated line is taken as an entry of its own."""
+    pitches = sorted(t - p for (p, _), (t, r) in zip(read, read[1:]) if r.abbr or r.day)
+    return pitches[len(pitches) // 2] if pitches else None
 
 
 def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: float) -> _Row:
@@ -264,14 +310,15 @@ def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: f
     return _Row(abbr, day, m["yr"], printed, _tidy(m["rest"]), min(w.conf for w in subject_words), flags, page_no, i)
 
 
-def parse_list_pages(pages: list[list[Line]], default_year: int | None = None) -> ListResult:
-    """Entries from a folder's list pages, in order. default_year is used only when no
-    page prints a plausible year (e.g. taken from the releases' own dates)."""
+def parse_list_pages(pages: list[list[Line]], default_year: int | None = None,
+                     default_month: int | None = None) -> ListResult:
+    """Entries from a folder's list pages, in order. default_year and default_month are used
+    only when no page prints a plausible one (e.g. taken from the releases' own dates)."""
     all_rows: list[_Row] = []
     month: str | None = None
     years: Counter = Counter()
     for n, lines in enumerate(pages):
-        rows, month = _rows(n, lines, month)
+        rows, month = _rows(n, lines, month, ABBR[default_month - 1] if default_month else None)
         all_rows.extend(rows)
         if header_year := _header_year(lines):
             years[header_year] += 1

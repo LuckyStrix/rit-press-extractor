@@ -61,10 +61,16 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry]) -> None:
         row.subject, row.subject_verified, row.subject_match = row.first_five_words, row.words_verified, "shared"
         return
     row.subject = entry.subject
+    if match.duplicate:
+        _add_reasons(row, "another release in the folder reads the same and has the same subject; "
+                          "check for a duplicate copy")
     if match.method == "date":
         _add_reasons(row, "subject matched by date only; the release text does not confirm it")
     elif match.method == "text":
-        _add_reasons(row, "subject matched by its text only; no list entry carries this release's date")
+        listed = entry.date.isoformat() if entry.date else ""
+        _add_reasons(row, "subject matched by its text only" + (
+            "" if listed == row.release_date else f"; its list entry is dated {listed}" if listed and row.release_date
+            else "; no list entry carries this release's date"))
     elif entry.min_conf < SUBJECT_MIN_CONF:
         _add_reasons(row, "subject text was read with low confidence; check its spelling")
     row.subject_verified = "YES" if match.confident and entry.min_conf >= SUBJECT_MIN_CONF else "NO"
@@ -94,9 +100,11 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
                "ambiguous": 0, "no_subject": 0, "unmatched_entries": 0}
     unmatched: list[ListEntry] = []
     if list_pages:
-        years = Counter(r.release_date[:4] for r in rows if r.release_date[:4].isdigit())
+        dates = [d for r in rows if (d := _as_date(r.release_date))]
+        years, months = Counter(d.year for d in dates), Counter(d.month for d in dates)
         parsed = parse_list_pages([p.result.list_lines for p in list_pages],
-                                  int(years.most_common(1)[0][0]) if years else None)
+                                  years.most_common(1)[0][0] if years else None,
+                                  months.most_common(1)[0][0] if months else None)
         entries = parsed.entries
         result = match_subjects(texts, entries)
         for i, row in enumerate(rows):

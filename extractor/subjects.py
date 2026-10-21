@@ -24,6 +24,7 @@ MIN_TEXT_SCORE = 0.5  # share of a subject's weight that must appear in the rele
 MIN_MARGIN = 0.2  # a match must beat every rival, for the release and for the entry, by this much
 FALLBACK_MIN, FALLBACK_MARGIN = 0.6, 0.3  # stricter when the date can't narrow the choice
 MAX_CANDIDATES = 4
+SAME_TEXT = 0.9  # releases whose opening text agrees this closely are copies of one release
 ORDER_BONUS = 0.02  # tie-break only: the list and the scan pile are in the same order
 _STOP = {"the", "and", "for", "from", "with", "new", "of"}
 
@@ -45,6 +46,7 @@ class Match:
     score: float = 0.0
     candidates: list[int] = field(default_factory=list)  # plausible entries when not settled
     shared: bool = False  # several releases claim this entry (one list line covering many releases)
+    duplicate: bool = False  # several releases claim this entry and read the same: copies of one release
 
 
 @dataclass
@@ -108,8 +110,11 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
     for day, rels in groups.items():
         _match_day(rels, by_day[day], scorer, matches, settled, touched)
 
+    # A release its own day's entries could not settle (the list's day can be misread, or a
+    # day off) is tried against every entry still free, as is one whose date the list lacks.
     free = [i for i in range(len(entries)) if i not in settled]
-    for r in loose:
+    unsettled = [r for rels in groups.values() for r in rels if matches[r.key].entry is None]
+    for r in loose + unsettled:
         scores = sorted(((scorer.score(r, i), i) for i in free), reverse=True)
         best, second = (scores[0][0], scores[1][0]) if len(scores) > 1 else ((scores[0][0], 0.0) if scores else (0.0, 0.0))
         if scores and best >= FALLBACK_MIN and best - second >= FALLBACK_MARGIN:
@@ -117,7 +122,12 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
             touched.add(scores[0][1])
         else:
             near = [i for s, i in scores[:MAX_CANDIDATES] if s >= 0.4]
-            matches[r.key] = Match(None, "none", False, best, near)
+            if r.key not in matches:
+                matches[r.key] = Match(None, "none", False, best, near)
+            elif matches[r.key].candidates:
+                continue  # keep the day's candidates
+            else:
+                matches[r.key].candidates = near
             touched.update(near)
     # Two releases can settle on one entry through the fallback; keep it for neither.
     claims = Counter(m.entry for m in matches.values() if m.entry is not None and m.method == "text")
@@ -125,6 +135,12 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
         if m.entry is not None and m.method == "text" and claims[m.entry] > 1:
             m.candidates, m.entry, m.method = [m.entry], None, "none"
     return MatchResult(matches, [i for i in range(len(entries)) if i not in touched])
+
+
+def _same_text(rels: list[Release]) -> bool:
+    """Do these releases open with the same words (a second copy filed with the first)?"""
+    texts = [" ".join(_tokens(r.text)) for r in rels]
+    return all(t and difflib.SequenceMatcher(None, texts[0], t).ratio() >= SAME_TEXT for t in texts)
 
 
 def _match_day(rels: list[Release], idxs: list[int], scorer: _Scorer, matches: dict, settled: set, touched: set) -> None:
@@ -141,8 +157,10 @@ def _match_day(rels: list[Release], idxs: list[int], scorer: _Scorer, matches: d
             claimed[j].append(i)
     done_rels = {i for owners in claimed.values() for i in owners}
     for j, owners in claimed.items():
+        copies = len(owners) > 1 and _same_text([rels[i] for i in owners])
         for i in owners:
-            matches[rels[i].key] = Match(idxs[j], "date+text", True, float(score[i, j]), shared=len(owners) > 1)
+            matches[rels[i].key] = Match(idxs[j], "date+text", True, float(score[i, j]),
+                                         shared=len(owners) > 1 and not copies, duplicate=copies)
         settled.add(idxs[j])
 
     # The rest are settled among the entries nobody has claimed.

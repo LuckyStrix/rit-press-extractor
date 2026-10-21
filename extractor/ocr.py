@@ -13,12 +13,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .models import Line, Word, merge_rows, split_dashes
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 TESSDATA_BEST = MODELS_DIR / "tessdata_best"  # optional, filled by `setup --tess-best`
+CELL_PAD = 40  # white margin around a single cell read on its own
 # The neural engines' models are loaded once per process and shared by its threads, which take
 # turns with them (on a GPU each turn is short). Tesseract runs as its own program and needs none.
 MODEL_LOCK = threading.RLock()
@@ -151,12 +152,18 @@ def tesseract_lines(img: Image.Image, lang: str, psm: int = 3, threshold: int = 
     return merge_rows(kept)
 
 
-def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int]) -> list[Word]:
+def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int], cell: bool = False) -> list[Word]:
     """Numbers in one region (a column of days), in page coordinates. Read on their own because
-    in a full-page read Tesseract often drops one or two digits standing apart from the text."""
+    in a full-page read Tesseract often drops one or two digits standing apart from the text.
+    cell: the region is one row's day, read as a single line with a white margin around it
+    (Tesseract misses a lone digit cropped tight)."""
     x0, y0, _, _ = box
-    tsv = _run_tesseract(img.crop(box), [
-        "-l", "eng", "--psm", "6", "--dpi", "300", "-c", "tessedit_char_whitelist=0123456789",
+    crop, pad = img.crop(box), CELL_PAD if cell else 0
+    if cell:
+        crop = ImageOps.expand(crop.convert("L"), pad, fill=255)
+        x0, y0 = x0 - pad, y0 - pad
+    tsv = _run_tesseract(crop, [
+        "-l", "eng", "--psm", "7" if cell else "6", "--dpi", "300", "-c", "tessedit_char_whitelist=0123456789",
         "-c", "tessedit_create_tsv=1", "-c", "tessedit_create_txt=0",
     ])
     words = []

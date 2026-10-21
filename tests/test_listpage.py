@@ -4,10 +4,11 @@ The garbled dates below are the kinds of misreads seen on real typed lists; name
 """
 import datetime as dt
 
-from extractor.listpage import day_column, is_list_page, parse_list_pages, with_days
+from extractor.listpage import (day_column, has_month_line, is_list_page, missing_day_cells, parse_list_pages,
+                                with_days, with_month_line)
 from extractor.models import Word
 
-from .test_units import layout_page, mkpage
+from .test_units import layout_page, mkline_at, mkpage
 
 HEAD = ["NEWS RELEASES SENT OUT", "MONTH .. November... cee", "Date Subject Additional Info."]
 
@@ -166,3 +167,70 @@ def test_evenly_spaced_undated_rows_stay_entries_of_their_own():
     # On a single-spaced list an undated row is another release on the same day, not a wrap.
     result = parse_list_pages([PAGE2])
     assert "Robert Peters - Co-op" in [e.subject for e in result.entries]
+
+
+# An August 1969 list where Tesseract dropped the "MONTH" line and the "Date" heading, so
+# nothing on the page said where the days were or which month they belong to.
+def _drop(lines, *texts):
+    return [ln for ln in lines if ln.text not in texts]
+
+
+def test_days_are_found_without_a_date_heading_and_the_month_comes_from_the_releases():
+    lines, days = COLUMNS
+    lines = [ln for ln in _drop(lines, "MONTH July 1969") if ln.text != "Date Subject Additional Info."]
+    lines.insert(1, mkline_at("Subject", 420, 240))
+    lines[1].words.append(mkline_at("Additional Info.", 800, 240).words[0])
+    lines[1].words.append(mkline_at("Info.", 920, 240).words[0])
+    assert not has_month_line(lines)
+    box = day_column(lines)
+    assert box is not None and box[2] < 260
+    result = parse_list_pages([with_days(lines, days)], default_year=1969, default_month=7)
+    assert [e.date.isoformat() for e in result.entries[1:]] == ["1969-07-11", "1969-07-14", "1969-07-22", "1969-07-29"]
+
+
+def test_a_month_line_read_again_in_pieces_is_put_back():
+    lines, _ = COLUMNS
+    lines = _drop(lines, "MONTH July 1969")
+    back = with_month_line(lines, [mkline_at("NEWS RELEASES SENT OUT", 400, 100), mkline_at("MonTH Aug ust 1969", 180, 160)])
+    assert has_month_line(back)
+    result = parse_list_pages([back])
+    assert (result.year, result.month) == (1969, 8)
+
+
+def test_a_punch_hole_read_as_a_digit_is_not_taken_for_a_day():
+    lines, days = COLUMNS
+    hole = Word("8", 60.0, (10, 690, 110, 780))  # far taller than the typed days, at the page edge
+    result = parse_list_pages([with_days(lines, [hole, *days])])
+    assert result.entries[3].subject == "Joan Black appointed to the art faculty"
+    assert result.entries[3].date.isoformat() == "1969-07-22"
+
+
+def test_a_day_goes_to_the_row_it_overlaps_most_not_a_speck_beside_it():
+    lines = [mkline_at("Subject Additional", 420, 240), mkline_at("a -", 700, 330),
+             mkline_at("National Association of Lithographers", 260, 336)]
+    lines[1].words = [Word("a", 50.0, (700, 330, 712, 342)), Word("-", 50.0, (720, 330, 730, 342))]
+    out = with_days(lines, [Word("20", 96.0, (150, 338, 174, 366))])
+    assert out[2].words[0].text == "20" and out[1].words[0].text == "a"
+
+
+def test_an_entry_wrapped_before_any_spacing_is_measured_is_still_joined():
+    lines, days = column_page(
+        ("6", ["Alumni scholarships totaling", "$5,000 announced by", "the Alumni Association"], ["local"]),
+        ("7", ["Gannett dedication"], ["local"]),
+        ("8", ["Eight wrestling coaches"], ["local"]),
+    )
+    result = parse_list_pages([with_days(lines, days)])
+    assert [e.subject for e in result.entries] == [
+        "Alumni scholarships totaling $5,000 announced by the Alumni Association", "Gannett dedication",
+        "Eight wrestling coaches"]
+
+
+def test_rows_the_column_read_missed_are_read_again_one_by_one():
+    lines, days = COLUMNS
+    box = day_column(lines)
+    cells = missing_day_cells(with_days(lines, days), box)
+    tops = {c[1] for c in cells}
+    assert 330 in tops  # Dr. Jane Doe's day was not read
+    assert all(c[0] == box[0] and c[2] == box[2] for c in cells)
+    dated = {w.box[1] for w in days}
+    assert not tops & dated
