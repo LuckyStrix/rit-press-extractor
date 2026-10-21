@@ -126,9 +126,12 @@ Add `-j N` to `process` to handle several photos at once.
 
 | Computer | Suggested `-j` | Notes |
 |---|---|---|
-| GPU with 12+ GB video memory | `-j 4` | each job uses ~2 GB of video memory |
-| GPU with 6–8 GB | `-j 2` | |
+| NVIDIA GPU | about half your core count (up to 8) | the jobs share one copy of the OCR models on the GPU, so each extra job costs only ~0.5 GB of RAM and no extra video memory |
 | CPU only | about half your core count, capped by RAM | each job needs ~1.5 GB RAM |
+
+The window picks `-j` for you. With a GPU, the jobs run as threads in one process: the models
+load once, and the pages' Tesseract reads still run side by side. Without one, each job is
+its own process with its own copy of the models, which is why it needs more RAM.
 
 ## Windows-specific notes
 

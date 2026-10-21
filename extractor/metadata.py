@@ -79,12 +79,16 @@ def digitized_date(path: Path) -> str:
         if path.suffix.lower() == ".pdf":
             import pypdfium2 as pdfium
 
-            doc = pdfium.PdfDocument(path)
-            try:
-                if m := _PDF_DATE.match(doc.get_metadata_dict().get("CreationDate", "").strip()):
-                    return _iso(m[1], m[2], m[3]) or _file_date(path)
-            finally:
-                doc.close()
+            from .loader import PDFIUM_LOCK
+
+            with PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(path)
+                try:
+                    created = doc.get_metadata_dict().get("CreationDate", "").strip()
+                finally:
+                    doc.close()
+            if m := _PDF_DATE.match(created):
+                return _iso(m[1], m[2], m[3]) or _file_date(path)
         else:
             from PIL import Image
 

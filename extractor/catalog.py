@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .folder import FolderOutput
+from .loader import PDFIUM_LOCK
 
 # Placeholders until the archive's real convention is settled: {box}, {folder}, {release}.
 RELEASE_TEMPLATE = "Box{box}_Folder{folder}_{release:03d}"
@@ -118,7 +119,8 @@ def write_pdfs(folder_path: Path, pdfs: dict[str, list[tuple[str, int]]], out_di
                 continue
             partial = target.with_name(target.name + ".part")
             try:
-                count = _write_pdf(sources, pages, partial)
+                with PDFIUM_LOCK:  # pages may still be being read on other threads
+                    count = _write_pdf(sources, pages, partial)
                 partial.replace(target)
             except Exception as exc:
                 partial.unlink(missing_ok=True)
@@ -126,7 +128,8 @@ def write_pdfs(folder_path: Path, pdfs: dict[str, list[tuple[str, int]]], out_di
                 continue
             messages.append(f"{target.name} ({count} page{'s' if count != 1 else ''})")
     finally:
-        sources.close()
+        with PDFIUM_LOCK:
+            sources.close()
     if naming:
         for old in sorted(out_dir.glob("*.pdf")):
             if old.stem not in pdfs and naming.owns(old.stem):

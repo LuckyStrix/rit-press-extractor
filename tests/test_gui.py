@@ -11,7 +11,9 @@ def test_command_runs_the_process_command_with_the_chosen_folders():
 
 
 def test_jobs_default_is_sensible():
-    assert 1 <= default_jobs() <= 4
+    assert 1 <= default_jobs(gpu=False) <= 4
+    assert 1 <= default_jobs(gpu=True) <= 8
+    assert default_jobs(gpu=True) >= default_jobs(gpu=False)  # GPU jobs share one copy of the models
 
 
 def test_progress_follows_the_pages_read():

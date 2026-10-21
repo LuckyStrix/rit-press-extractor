@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import queue
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -17,8 +18,11 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = PROJECT_DIR / "data" / "results.csv"
-JOB_RAM_GB = 1.5  # each parallel job loads its own OCR models
+JOB_RAM_GB = 1.5  # without a GPU each parallel job is a process with its own OCR models
 MAX_JOBS = 4
+# With an NVIDIA GPU the jobs are threads sharing one copy of the models, so a job costs only a
+# Tesseract run and a page image, and more of them fit.
+GPU_JOB_RAM_GB, GPU_MAX_JOBS = 0.5, 8
 
 _READ = re.compile(r"^\s+read (?P<page>(?P<file>.+?) p\d+)")
 _RESULT = re.compile(r"^\s+\[(?P<mark>ok|REVIEW)\s*\]")
@@ -47,9 +51,13 @@ def _ram_gb() -> float:
     return 4.0
 
 
-def default_jobs() -> int:
-    """Photos to read at once: half the cores, as many as the free memory allows, at most MAX_JOBS."""
-    return max(1, min(MAX_JOBS, (os.cpu_count() or 2) // 2, int(_ram_gb() // JOB_RAM_GB)))
+def default_jobs(gpu: bool | None = None) -> int:
+    """Photos to read at once: half the cores, as many as the free memory allows, at most MAX_JOBS
+    (GPU_MAX_JOBS with an NVIDIA GPU)."""
+    if gpu is None:
+        gpu = shutil.which("nvidia-smi") is not None  # cheap; importing PyTorch to ask would stall the window
+    cap, per_job = (GPU_MAX_JOBS, GPU_JOB_RAM_GB) if gpu else (MAX_JOBS, JOB_RAM_GB)
+    return max(1, min(cap, (os.cpu_count() or 2) // 2, int(_ram_gb() // per_job)))
 
 
 def pdf_dir_for(output: Path) -> Path:

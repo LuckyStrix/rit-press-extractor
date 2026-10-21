@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -15,6 +16,8 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".heif", ".webp
 PDF_EXTS = {".pdf"}
 SUPPORTED_EXTS = IMAGE_EXTS | PDF_EXTS
 PDF_DPI = 300
+# pdfium is not thread-safe: every call into it, here and wherever PDFs are written, holds this.
+PDFIUM_LOCK = threading.RLock()
 
 
 def natural_key(path: Path) -> list:
@@ -38,25 +41,45 @@ def find_inputs(paths: list[Path]) -> list[Path]:
 def page_count(path: Path) -> int:
     """How many pages load_pages yields, without rendering any."""
     if path.suffix.lower() in PDF_EXTS:
-        pdf = pdfium.PdfDocument(path)
-        try:
-            return len(pdf)
-        finally:
-            pdf.close()
+        with PDFIUM_LOCK:
+            pdf = pdfium.PdfDocument(path)
+            try:
+                return len(pdf)
+            finally:
+                pdf.close()
     with Image.open(path) as img:
         return 1 if img.format == "MPO" else getattr(img, "n_frames", 1)
+
+
+def _render(pdf, index: int) -> Image.Image:
+    """One page as an RGB image that owns its pixels, with pdfium's objects closed again (so no
+    garbage collection touches pdfium later, from whatever thread)."""
+    page = pdf[index]
+    try:
+        bitmap = page.render(scale=PDF_DPI / 72)
+        try:
+            return bitmap.to_pil().convert("RGB")
+        finally:
+            bitmap.close()
+    finally:
+        page.close()
 
 
 def load_pages(path: Path, only: int | None = None) -> Iterator[tuple[int, Image.Image]]:
     """Yield (1-based page number, RGB image) for every page in the file, one at a time (a
     scanner's PDF can hold a whole folder). With only, just that page of a PDF."""
     if path.suffix.lower() in PDF_EXTS:
-        pdf = pdfium.PdfDocument(path)
+        with PDFIUM_LOCK:
+            pdf = pdfium.PdfDocument(path)
+            numbers = [only - 1] if only else range(len(pdf))
         try:
-            for i in [only - 1] if only else range(len(pdf)):
-                yield i + 1, pdf[i].render(scale=PDF_DPI / 72).to_pil().convert("RGB")
+            for i in numbers:
+                with PDFIUM_LOCK:
+                    img = _render(pdf, i)
+                yield i + 1, img
         finally:
-            pdf.close()
+            with PDFIUM_LOCK:
+                pdf.close()
         return
     with Image.open(path) as img:
         if img.format == "MPO":  # extra frames are gain maps/depth data, not pages

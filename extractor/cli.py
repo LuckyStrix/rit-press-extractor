@@ -78,6 +78,17 @@ def _init_worker(jobs: int) -> None:
         torch.set_num_threads(max(1, (os.cpu_count() or 1) // jobs))
 
 
+def _threads_suffice(opts) -> bool:
+    """Can parallel pages share one process? Yes when the neural engines run on a GPU (or not at
+    all): then they are a small share of the work and the rest runs outside Python's lock. On a
+    CPU they are most of the work, so each worker needs a process (and a copy of the models)."""
+    from . import ocr
+
+    if not {"easyocr", "doctr", "trocr"} & set(opts.engines):
+        return True
+    return ocr._torch_device() == "cuda"
+
+
 def _work_units(files: list[Path]) -> list[tuple[Path, int | None]]:
     """What one worker reads at a time: a photo, or one page of a PDF (a scanner's PDF can hold
     a whole folder, which then still spreads over the workers and shows its progress)."""
@@ -283,7 +294,15 @@ def cmd_process(args) -> int:
               "Run them separately, or name the folders like 'Box 12/Folder 3'.", file=sys.stderr)
         return 2
     pool = None
-    if args.jobs > 1:
+    if args.jobs > 1 and _threads_suffice(opts):
+        from concurrent.futures import ThreadPoolExecutor
+
+        # One copy of the models (on the GPU) shared by threads; Tesseract runs as separate
+        # programs, so the pages are still read side by side.
+        os.environ["OMP_THREAD_LIMIT"] = "1"  # Tesseract
+        pool = ThreadPoolExecutor(args.jobs)
+        print(f"Reading {args.jobs} pages at a time in one process (the OCR models are loaded once).", flush=True)
+    elif args.jobs > 1:
         import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor
 
