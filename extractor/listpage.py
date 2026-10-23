@@ -36,6 +36,7 @@ DAY_DRIFT = 4  # line heights a day can stand off the middle of its column (type
 BARE_ROWS = 4  # fewest dated rows on a list page whose days only a read of its day column finds
 BARE_MARGIN = 8  # line heights from the page edge to where such a page's subjects start
 WRAP_INDENT = 4  # an undated line set in this many line heights from the subjects' edge is a wrap
+DAY_COLUMN_SLACK = 3  # line heights left of where most subjects start that a subject may still start
 DAY_COLUMN_ROWS = 0.8  # share of rows that start right of the "Date" heading on a list with a day column
 COLUMN_SLACK = 4  # notes start up to this many line heights left of their column's header word
 WRAP_PITCH = 0.75  # a wrapped line sits closer to the line above than this share of an entry's spacing
@@ -201,7 +202,11 @@ def day_column(lines: list[Line]) -> Box | None:
     starts = [(ln.words[1] if _DAY.match(ln.words[0].text) and len(ln.words) > 1 else ln.words[0]).box[0]
               for ln in rows]
     if date_word is None:
-        right = min(starts) - round(_height(rows))
+        # Without the heading to go by, the subjects start where most rows do; a row or two
+        # starting further left carry a garbled day ("#514 Photographic").
+        height = round(_height(rows))
+        edge = sorted(starts)[len(starts) // 4]
+        right = min(x for x in starts if x >= edge - DAY_COLUMN_SLACK * height) - height
         return (0, lines[head].box[3], right, max(ln.box[3] for ln in rows)) if right > 0 else None
     # A day typed over another can read as a garbled word glued to its row ("#514 Photographic").
     # Only when most rows start under the heading are the dates typed at the start of each row.

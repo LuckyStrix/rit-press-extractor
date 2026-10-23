@@ -51,7 +51,7 @@ def dump_list(path: Path, pages: list[int]) -> None:
     import subprocess
 
     from .listpage import has_month_line, header_band, is_list_page, parse_list_pages
-    from .pipeline import read_list_page
+    from .pipeline import _bare_list, read_list_page
 
     version = subprocess.run([ocr.TESSERACT, "--version"], capture_output=True, text=True)
     print(f"tesseract: {ocr.TESSERACT}\n{(version.stdout or version.stderr).strip()}\n")
@@ -64,10 +64,13 @@ def dump_list(path: Path, pages: list[int]) -> None:
               f"month line read: {has_month_line(lines)}, header band: {header_band(lines)}")
         for i, ln in enumerate(lines):
             print(f"  {i:3} x{ln.box[0]:5} y{ln.box[1]:5}  {ln.text}")
-        if not is_list_page(lines):
+        bare = None if is_list_page(lines) else _bare_list(page, lines)
+        if not is_list_page(lines) and not bare:
             print("  NOT read as a list page")
             continue
-        used = read_list_page(page, lines, show=lambda step, value: print(f"  {step}: {value}"))
+        if bare:
+            print("  a list's next page: its days were found beside its rows")
+        used = read_list_page(page, lines, show=lambda step, value: print(f"  {step}: {value}"), box=bare)
         print("  list lines as used:")
         for ln in used:
             print(f"      x{ln.box[0]:5} y{ln.box[1]:5}  {ln.text}")

@@ -403,3 +403,13 @@ def test_a_continued_list_whose_days_the_page_read_dropped_is_found_by_reading_b
     # A release page's body starts near the margin, so there is no strip for days beside it.
     assert bare_day_column(layout_page([(150, 270 + 50 * i, "and the college will open a new laboratory")
                                         for i in range(8)])) is None
+
+
+def test_without_the_date_heading_a_garbled_row_does_not_cut_off_the_days():
+    # Tesseract 5.5 read the heading as "Subject Additional Info." and kept a struck-out day,
+    # "#514", in front of one row; the days themselves stand at x 390-470.
+    rows = [(1007, 657, "Subject Additional Info.")]
+    rows += [(660, 740 + 60 * i, f"Release subject number {i}") for i in range(12)]
+    rows += [(410, 1460, "#514 Photographic symposium"), (610, 1520, "Nancy Belfer exhibit")]
+    box = day_column(layout_page(rows))
+    assert box is not None and 470 < box[2] < 610
