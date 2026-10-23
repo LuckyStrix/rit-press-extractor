@@ -6,7 +6,7 @@ import datetime as dt
 
 from extractor.listpage import (day_column, has_month_line, is_list_page, missing_day_cells, parse_list_pages,
                                 with_days, with_month_line)
-from extractor.models import Word
+from extractor.models import Line, Word
 
 from .test_units import layout_page, mkline_at, mkpage
 
@@ -52,6 +52,21 @@ def test_list_page_is_recognised_by_its_title():
                         "Rochester, New York 14623 NEWS RELEASE", "IMMEDIATE RELEASE Contact: Jack M. Tucker",
                         "September 11, 1969")
     assert not is_list_page(letterhead)
+
+
+def test_a_list_continued_on_a_page_without_title_or_headings_is_a_list():
+    # box2folder3 p2: the rows carry on from the page before, each starting with its day
+    rows = [(510, 330, "11th annual management seminar"), (1700, 330, "Code 1-1,2,3,4"),
+            (510, 400, "Fall semester enrollment"), (1700, 450, "Code3-1,2,3"),
+            (375, 520, "23 Alumni, faculty & staff golf tournament"), (375, 590, "25 Alumni club of Tricity area"),
+            (375, 660, "25 Charles McColgan, Cadet Lieut. Col ROTC"), (1700, 710, "pictures sent."),
+            (350, 780, "25 Special retirement reception"), (350, 850, "26 Architects"),
+            (355, 920, "27 Certificates - Community Awareness"), (355, 990, "29 Raymond DaBoll & Warren Rhodes"),
+            (370, 1060, "30 Westvaco story"), (485, 1130, "Laverne, Senator addressing NAADURH")]
+    assert is_list_page(layout_page(rows))
+    scores = [(300, 300 + 70 * i, f"{n} {name} scored") for i, (n, name) in
+              enumerate([(12, "Smith"), (3, "Jones"), (27, "Brown"), (8, "Green"), (19, "White"), (4, "Black")])]
+    assert not is_list_page(layout_page(scores))  # numbered rows out of order are not days
 
 
 def test_list_page_is_recognised_without_a_readable_title():
@@ -188,6 +203,11 @@ def test_days_are_found_without_a_date_heading_and_the_month_comes_from_the_rele
     assert not has_month_line(lines)
     box = day_column(lines)
     assert box is not None and box[2] < 260
+    # The page read kept one row's day in front of it (Tesseract 5.5): the column still reaches the days.
+    glued = [Line(list(ln.words)) for ln in lines]
+    row = next(ln for ln in glued if ln.text.startswith("Joan Black"))
+    row.words.insert(0, next(w for w in days if w.text == "22"))
+    assert day_column(glued) == box
     result = parse_list_pages([with_days(lines, days)], default_year=1969, default_month=7)
     assert [e.date.isoformat() for e in result.entries[1:]] == ["1969-07-11", "1969-07-14", "1969-07-22", "1969-07-29"]
 

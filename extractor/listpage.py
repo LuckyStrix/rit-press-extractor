@@ -69,7 +69,20 @@ def is_list_page(lines: list[Line]) -> bool:
             return True
     rows = lines[3:]  # a list is nearly all dated rows even when its title is unreadable
     dated = sum(1 for ln in rows if _STRICT_ROW.match(ln.text) and _edit1(_STRICT_ROW.match(ln.text)["mon"].lower()))
-    return len(rows) >= 5 and dated >= 0.6 * len(rows)
+    return len(rows) >= 5 and dated >= 0.6 * len(rows) or _is_continued_list(lines)
+
+
+def _is_continued_list(lines: list[Line]) -> bool:
+    """A list's next page, with no title or headings: most rows start with a day, in order."""
+    if not lines:
+        return False
+    height = _height(lines)
+    left = min(ln.box[0] for ln in lines)
+    rows = [ln for ln in lines if ln.box[0] < left + 10 * height]  # not the "Additional Info." column
+    days = [int(ln.words[0].text) for ln in rows if len(ln.words) > 1 and _DAY.match(ln.words[0].text)
+            and 1 <= int(ln.words[0].text) <= 31]
+    ordered = sum(a <= b for a, b in zip(days, days[1:]))
+    return len(days) >= 5 and len(days) >= 0.6 * len(rows) and ordered >= 0.8 * (len(days) - 1)
 
 
 def _edit1(token: str) -> str | None:
@@ -151,7 +164,10 @@ def day_column(lines: list[Line]) -> Box | None:
     rows = [ln for ln in lines[head + 1:] if ln.words]
     if not rows:
         return None
-    left = min(ln.box[0] for ln in rows)
+    # Where the subjects start. The page read may keep a row's day in front of it; that day is
+    # in the column, not its right edge.
+    left = min((ln.words[1] if _DAY.match(ln.words[0].text) and len(ln.words) > 1 else ln.words[0]).box[0]
+               for ln in rows)
     if date_word is None:
         right = left - round(_height(rows))
         return (0, lines[head].box[3], right, max(ln.box[3] for ln in rows)) if right > 0 else None
