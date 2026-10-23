@@ -51,7 +51,14 @@ class Group:
 
 
 def _words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z]{3,}", text.lower()) if w not in _TAG_SKIP}
+    """The page's words, and the initials of each run of capitalised words, so that a slug
+    "RIT/ASEE" fits a release about the "American Society for Engineering Education"."""
+    words = {w for w in re.findall(r"[a-z]{3,}", text.lower()) if w not in _TAG_SKIP}
+    for run in re.findall(r"[A-Z][a-z]+(?:\s+(?:(?:for|of|and|the|on|in|&)\s+)?[A-Z][a-z]+)+", text):
+        initials = "".join(w[0] for w in run.split() if w[0].isupper()).lower()
+        if len(initials) >= 3:
+            words.add(initials)
+    return words
 
 
 def _continuation_cue(lines: list[Line], letterhead: bool) -> bool:

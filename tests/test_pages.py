@@ -135,3 +135,12 @@ def test_a_misread_slug_after_more_stays_with_its_release():
     second = sig(["RIT /FAG ot SL AAotions", "Both bachelors, they are sharing an apartment", *BODY, "-30-"])
     assert second.tag and not second.tag & first.words
     assert [g.pages for g in group_pages([first, second])] == [[0, 1]]
+
+
+def test_a_slug_that_abbreviates_the_release_still_fits():
+    # The page before lost its "-more-"; the slug is the initials of a name in the release.
+    first = sig(["FOR IMMEDIATE RELEASE", "October 14, 1969", "Some of the top engineering muscle will be here for",
+                 "the Upper New York Section meeting of the American Society for Engineering Education."])
+    second = sig(["RIT/ASEE CONFERENCE ~-add 1 -- be presented by William F. Halbleib",
+                  "of the mechanical engineering department, at a dinner on Saturday."])
+    assert [g.pages for g in group_pages([first, second])] == [[0, 1]]
