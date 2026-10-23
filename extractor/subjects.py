@@ -55,9 +55,16 @@ class MatchResult:
     unmatched_entries: list[int]  # entries no release claimed or could be mistaken for
 
 
-def _tokens(text: str) -> list[str]:
-    text = re.sub(r"(?<=\w)[-'’](?=\w)", "", text.lower())  # "co-op" -> "coop"
-    return [t for t in re.findall(r"[a-z0-9]+", text) if len(t) >= 3 and t not in _STOP]
+def _tokens(text: str, parts: bool = False) -> list[str]:
+    """parts: a hyphenated word also gives its parts (for a release's text, so that its
+    "transportation-distribution" supports the subject "Transportation Seminar")."""
+    text = re.sub(r"(?<=\w)['’](?=\w)", "", text.lower())  # "rit's" -> "rits"
+    words = re.findall(r"[a-z0-9]+", re.sub(r"(?<=\w)-(?=\w)", "", text))  # "co-op" -> "coop"
+    if parts:
+        words += [w for w in re.findall(r"[a-z0-9]+", text) if w not in words]
+    # a plural names the same thing ("Additions to staff", "the addition of seven")
+    return [t[:-1] if len(t) >= 5 and t.endswith("s") and not t.endswith("ss") else t
+            for t in words if len(t) >= 3 and t not in _STOP]
 
 
 class _Scorer:
@@ -71,7 +78,7 @@ class _Scorer:
     def release_tokens(self, r: Release) -> set[str]:
         key = id(r)
         if key not in self._release:
-            self._release[key] = set(_tokens(r.slug)) | set(_tokens(r.text))
+            self._release[key] = set(_tokens(r.slug, parts=True)) | set(_tokens(r.text, parts=True))
         return self._release[key]
 
     def score(self, r: Release, entry_idx: int) -> float:
@@ -134,7 +141,40 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
     for m in matches.values():
         if m.entry is not None and m.method == "text" and claims[m.entry] > 1:
             m.candidates, m.entry, m.method = [m.entry], None, "none"
+    _eliminate(releases, entries, scorer, matches, touched)
     return MatchResult(matches, [i for i in range(len(entries)) if i not in touched])
+
+
+def _eliminate(releases: list[Release], entries: list[ListEntry], scorer: _Scorer, matches: dict,
+               touched: set) -> None:
+    """A release still without a subject gets an entry no release has taken, unverified: the
+    only one of those listed within a day of its date that its text supports at all, or, with
+    no support, the only one listed within a day that is listed on its very day. Some entries
+    have no release in the folder, so a release only takes an entry its text supports better
+    than that of every other waiting release that could take it."""
+    changed = True
+    while changed:
+        changed = False
+        taken = {m.entry for m in matches.values() if m.entry is not None}
+        free = [i for i, e in enumerate(entries) if i not in taken and e.date is not None]
+        near = {r.key: [i for i in free if abs((entries[i].date - r.date).days) <= 1]
+                for r in releases if matches[r.key].entry is None and r.date is not None}
+        waiting = [r for r in releases if near.get(r.key)]
+        for r in waiting:
+            cands = near[r.key]
+            backed = [i for i in cands if scorer.score(r, i) > 0]
+            pick = backed[0] if len(backed) == 1 else None
+            if not backed and len(cands) == 1 and entries[cands[0]].date == r.date:
+                pick = cands[0]
+            if pick is None:
+                continue
+            rivals = [o for o in waiting if o is not r and pick in near[o.key]]
+            if rivals and not all(scorer.score(r, pick) > scorer.score(o, pick) for o in rivals):
+                continue
+            matches[r.key] = Match(pick, "date", False, scorer.score(r, pick))
+            touched.add(pick)
+            changed = True
+            break
 
 
 def _same_text(rels: list[Release]) -> bool:

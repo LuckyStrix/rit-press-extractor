@@ -62,11 +62,18 @@ def test_subjects_attach_by_date_and_text_and_verify():
     assert [e.subject for e in out.unmatched] == ["Football schedule"]
 
 
-def test_release_with_no_entry_is_flagged():
+def test_release_with_no_entry_is_flagged():  # the one entry is a day off and its text unrelated
     out = assemble_folder("f1", [list_page("Nov. 3, 1970 Football schedule"), release_page("a.pdf")])
     r = out.rows[0]
     assert r.subject == "" and r.subject_match == "none" and r.needs_review == "YES"
     assert "no subject found in the list page" in r.review_reasons
+
+
+def test_the_one_entry_left_on_a_release_s_day_is_given_but_flagged():
+    out = assemble_folder("f1", [list_page("Nov. 2, 1970 Football schedule"), release_page("a.pdf")])
+    r = out.rows[0]
+    assert (r.subject, r.subject_match, r.subject_verified) == ("Football schedule", "date", "NO")
+    assert "subject matched by date only" in r.review_reasons
 
 
 def test_ambiguous_group_lists_candidates_instead_of_guessing():

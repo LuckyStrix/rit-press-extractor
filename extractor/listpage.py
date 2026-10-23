@@ -28,8 +28,10 @@ _LOOKALIKE = str.maketrans("OoIlSsBb", "00115588")
 _JUNK = re.compile(r"\s*[|\[\]{}]\s*")
 _DAY = re.compile(r"^\d{1,2}$")
 COLUMN_GAP = 2.0  # a gap this many line heights wide separates two columns, not two words
+DAY_GAP = 1.0  # a typed tab after a row's day, wider than a space
 COLUMN_SLACK = 4  # notes start up to this many line heights left of their column's header word
 WRAP_PITCH = 0.75  # a wrapped line sits closer to the line above than this share of an entry's spacing
+SINGLE_SPACED = 1.8  # entries this many line heights apart are typed on consecutive lines
 
 
 @dataclass
@@ -159,7 +161,7 @@ def day_column(lines: list[Line]) -> Box | None:
     subjects, which is only margin on a list that types its dates at the start of each row."""
     head = _header_row(lines)
     if head is None:
-        return None
+        return _continued_day_column(lines) if _is_continued_list(lines) else None
     date_word = next((w for w in lines[head].words if _norm(w.text) == "date"), None)
     rows = [ln for ln in lines[head + 1:] if ln.words]
     if not rows:
@@ -174,6 +176,20 @@ def day_column(lines: list[Line]) -> Box | None:
     if left < date_word.box[2]:
         return None  # the dates are typed at the start of each row
     return 0, lines[head].box[3], (date_word.box[2] + left) // 2, max(ln.box[3] for ln in rows)
+
+
+def _continued_day_column(lines: list[Line]) -> Box | None:
+    """A continued list page has no headings: the days are the numbers that start rows, and the
+    column ends halfway between them and the subjects."""
+    height = _height(lines)
+    left = min(ln.box[0] for ln in lines)
+    rows = [ln for ln in lines if ln.box[0] < left + 10 * height]
+    days = [ln.words[0] for ln in rows if len(ln.words) > 1 and _DAY.match(ln.words[0].text)]
+    if not days:
+        return None
+    subjects = min((ln.words[1] if ln.words[0] in days else ln.words[0]).box[0] for ln in rows)
+    right = (max(w.box[2] for w in days) + subjects) // 2
+    return 0, min(ln.box[1] for ln in rows), right, max(ln.box[3] for ln in rows)
 
 
 def with_days(lines: list[Line], days: list[Word]) -> list[Line]:
@@ -216,16 +232,33 @@ def _additional_x(lines: list[Line], head: int | None) -> int | None:
     return next((w.box[0] for w in lines[head].words if _norm(w.text).startswith("addit")), None)
 
 
-def _subject_words(ln: Line, additional_x: int | None, height: float) -> list[Word]:
-    """The row's words left of the "Additional Info." column: the column starts at a wide gap
-    near where its header word sits."""
-    if additional_x is None:
-        return ln.words
+def _info_cut(ln: Line, additional_x: int, height: float) -> int | None:
+    """Where the "Additional Info." column starts on a row: at a wide gap near its header word."""
     for i, w in enumerate(ln.words):
         gap = w.box[0] - ln.words[i - 1].box[2] if i else w.box[0]
         if w.box[0] >= additional_x - COLUMN_SLACK * height and gap >= COLUMN_GAP * height:
-            return ln.words[:i]
-    return ln.words
+            return i
+    return None
+
+
+def _info_left(lines: list[Line], additional_x: int | None, height: float) -> int | None:
+    """The left edge of the notes column, from the rows where a wide gap sets it apart. A row
+    whose subject runs up to the column has no such gap, but its notes start at this edge."""
+    if additional_x is None:
+        return None
+    starts = sorted(ln.words[i].box[0] for ln in lines if (i := _info_cut(ln, additional_x, height)))
+    return starts[len(starts) // 2] if len(starts) >= 3 else None
+
+
+def _subject_words(ln: Line, additional_x: int | None, height: float, info_left: int | None = None) -> list[Word]:
+    """The row's words left of the "Additional Info." column."""
+    if additional_x is None:
+        return ln.words
+    cuts = [_info_cut(ln, additional_x, height)]
+    if info_left is not None:
+        cuts.append(next((i for i, w in enumerate(ln.words) if w.box[0] >= info_left - height / 2), None))
+    cut = min((c for c in cuts if c is not None), default=None)
+    return ln.words if cut is None else ln.words[:cut]
 
 
 def _day(raw: str) -> int | None:
@@ -262,8 +295,10 @@ def _month_of(token: str, month: str | None) -> str | None:
     return tok if tok in ABBR else None
 
 
-def _rows(page_no: int, lines: list[Line], month: str | None,
-          default_month: str | None = None) -> tuple[list[_Row], str | None]:
+def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str | None = None,
+          additional_x: int | None = None) -> tuple[list[_Row], str | None, int | None]:
+    """additional_x: where the list page before put its "Additional Info." column, for a
+    continued page that has no headings."""
     month = _header_month(lines) or month
     head = _header_row(lines)
     start = head + 1 if head is not None else 0
@@ -271,41 +306,48 @@ def _rows(page_no: int, lines: list[Line], month: str | None,
         seen = Counter(m["mon"].lower()[:3] for ln in lines[start:] if (m := _STRICT_ROW.match(ln.text))
                        and m["mon"].lower()[:3] in ABBR)
         month = seen.most_common(1)[0][0] if seen else default_month
-    additional_x, height = _additional_x(lines, head), _height(lines[start:])
+    additional_x, height = _additional_x(lines, head) or additional_x, _height(lines[start:])
+    info_left = _info_left(lines[start:], additional_x, height)
     read: list[tuple[int, _Row]] = []  # each line's top and its reading
     for i, ln in enumerate(lines[start:], start):
-        words = _subject_words(ln, additional_x, height)
+        words = _subject_words(ln, additional_x, height, info_left)
         text = " ".join(w.text for w in words).strip()
         if len(re.sub(r"[\W_]", "", text)) < 3:
             continue
         read.append((ln.box[1], _row(page_no, i, Line(words), text, month, height)))
-    pitch = _entry_pitch(read)
+    limit = _wrap_limit(read, height)
     rows: list[_Row] = []
     last_top = 0  # top of the last line of the entry above
     for top, row in read:
         # A wrapped subject is typed closer to the line above it than entries are to each other.
-        if row.abbr is None and row.day is None and rows and pitch and top - last_top < WRAP_PITCH * pitch:
+        if row.abbr is None and row.day is None and rows and limit and top - last_top < limit:
             prev = rows[-1]
             prev.subject = _tidy(f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
         else:
             rows.append(row)
         last_top = top
-    return rows, month
+    return rows, month, additional_x
 
 
-def _entry_pitch(read: list[tuple[int, _Row]]) -> float | None:
-    """The page's usual spacing between entries: from each dated line back to the line above.
-    Without dated entries to measure it, every undated line is taken as an entry of its own."""
+def _wrap_limit(read: list[tuple[int, _Row]], height: float) -> float | None:
+    """How close below the line above an undated line must sit to be a wrapped subject: a share
+    of the page's usual spacing between entries (from each dated line back to the line above).
+    Where some entries are single-spaced, spacing cannot tell a wrap from an entry, but the
+    days can: then an undated line closer than the usual spacing is a wrap.
+    Without dated entries to measure, every undated line is taken as an entry of its own."""
     pitches = sorted(t - p for (p, _), (t, r) in zip(read, read[1:]) if r.abbr or r.day)
-    return pitches[len(pitches) // 2] if pitches else None
+    if not pitches:
+        return None
+    packed = pitches[len(pitches) // 4] < SINGLE_SPACED * height
+    return pitches[len(pitches) // 2] * (1.0 if packed else WRAP_PITCH)
 
 
 def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: float) -> _Row:
     words = ln.words
     # A day alone in the "Date" column, set apart from the subject: the month is the page's.
     first, rest = words[0], words[1:]
-    if month and rest and _DAY.match(first.text) and rest[0].box[0] - first.box[2] >= COLUMN_GAP * height:
+    if month and rest and _DAY.match(first.text) and rest[0].box[0] - first.box[2] >= DAY_GAP * height:
         day = int(first.text) if 1 <= int(first.text) <= 31 else None
         flags = [] if day else [f"day read as '{first.text}'; assumed same day as the entry above"]
         return _Row(month, day, None, first.text, _tidy(" ".join(w.text for w in rest)), min(w.conf for w in rest),
@@ -336,8 +378,10 @@ def parse_list_pages(pages: list[list[Line]], default_year: int | None = None,
     all_rows: list[_Row] = []
     month: str | None = None
     years: Counter = Counter()
+    additional_x = None
     for n, lines in enumerate(pages):
-        rows, month = _rows(n, lines, month, ABBR[default_month - 1] if default_month else None)
+        rows, month, additional_x = _rows(n, lines, month, ABBR[default_month - 1] if default_month else None,
+                                          additional_x)
         all_rows.extend(rows)
         if header_year := _header_year(lines):
             years[header_year] += 1

@@ -133,4 +133,4 @@ def test_a_release_its_day_cannot_settle_still_lists_a_near_entry_from_another_d
     releases = [release("a", 19, "", "Inner-city leadership goals will be explored, part of a Leadership Development"),
                 release("b", 19, "", "A grant for bio-medical photography from the Public Health Service")]
     m = match_subjects(releases, entries).matches["a"]
-    assert m.entry is None and m.candidates == [1]
+    assert (m.entry, m.method, m.confident) == (1, "date", False)  # the only near entry its text supports

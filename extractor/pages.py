@@ -24,6 +24,13 @@ _PAGE_NUMBER = [
     re.compile(rf"(?:^|\s){_DASH}+\s*(\d{{1,2}})\s*{_DASH}?\s*$"),  # "RIT News Release - 2", "add ~- 2"
 ]
 _CONTINUED = re.compile(r"\(?\bcont(?:inued|'d)\b\)?", re.I)
+# "RIT/Fillers --add 1--": a later page's slug and its page count, "add 1" being the second page
+_ADD = re.compile(r"\badd\W{0,4}([0-9lI]{1,2})\b", re.I)
+_TAG = re.compile(r"^\W*RIT\s*/\s*(.+?)(?:\W+add\b.*)?$", re.I)
+# Printed stationery appears only on a release's first page.
+LETTERHEAD = re.compile(r"\bone\s+lomb\s+memorial\b|\boffice\s+of\s+public\s+relations\b|\bsports\s+news\b"
+                        r"|\bnews\s+from\b", re.I)
+_TAG_SKIP = {"rit", "news", "release", "the", "and", "for", "add"}
 _MORE = re.compile(r"^[\W_]*\(?\s*[mn]ore\s*\)?[\W_]*$", re.I)  # OCR reads "-more-" as "=nore=" too
 
 
@@ -33,6 +40,8 @@ class PageSignals:
     cont: bool = False  # looks like a later page of one
     more: bool = False  # ends with "-more-"
     end: bool = False  # ends with "-30-" or "###"
+    tag: set[str] = field(default_factory=set)  # words of a later page's "RIT/<slug>" line
+    words: set[str] = field(default_factory=set)  # every word on the page
 
 
 @dataclass
@@ -41,12 +50,19 @@ class Group:
     flags: list[str] = field(default_factory=list)
 
 
-def _continuation_cue(lines: list[Line]) -> bool:
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{3,}", text.lower()) if w not in _TAG_SKIP}
+
+
+def _continuation_cue(lines: list[Line], letterhead: bool) -> bool:
+    """A page number or "continued" at the top. Under a letterhead a lone number is a speck."""
     for ln in lines[:4]:
         text = ln.text
         if _CONTINUED.search(text):
             return True
-        for pattern in _PAGE_NUMBER:
+        if (m := _ADD.search(text)) and int(m.group(1).replace("l", "1").replace("I", "1")) >= 1:
+            return True
+        for pattern in _PAGE_NUMBER[1:] if letterhead else _PAGE_NUMBER:
             m = pattern.search(text)
             if m and int(m.group(1)) >= 2:
                 return True
@@ -59,21 +75,41 @@ def _end_marker(text: str) -> bool:
     return core.lower() in ("30", "end", "ends") or bool(re.fullmatch(r"#{3,}", core))
 
 
-def page_signals(lines: list[Line]) -> PageSignals:
-    head, foot = lines[:HEAD], lines[-FOOT:]
-    starts = any(HEADER_CUE.search(ln.text) for ln in head) or any(
+def has_release_header(lines: list[Line]) -> bool:
+    """A release line ("FOR IMMEDIATE RELEASE") or a header date near the top."""
+    head = lines[:HEAD]
+    return any(HEADER_CUE.search(ln.text) for ln in head) or any(
         len(ln.words) <= HEADER_DATE_WORDS and parse_dates_in_line(ln, 0) for ln in head)
+
+
+def page_signals(lines: list[Line]) -> PageSignals:
+    foot = lines[-FOOT:]
+    letterhead = any(LETTERHEAD.search(ln.text) for ln in lines[:4])
+    starts = letterhead or has_release_header(lines)
+    tag = next((_words(m[1]) for ln in lines[:2] if (m := _TAG.match(ln.text))), set())
     return PageSignals(
         starts=starts,
-        cont=_continuation_cue(lines),
+        cont=_continuation_cue(lines, letterhead),
         more=any(_MORE.match(ln.text) for ln in foot),
         end=any(_end_marker(ln.text) for ln in foot),
+        tag=tag,
+        words=_words(" ".join(ln.text for ln in lines)),
     )
 
 
 def group_pages(pages: list[PageSignals]) -> list[Group]:
     groups: list[Group] = []
+    words: set[str] = set()  # of the release being built
     for i, s in enumerate(pages):
+        if groups and s.tag and not s.tag & words and not s.starts:
+            # A later page's slug names something the release so far never mentions.
+            groups.append(Group([i], ["a page's slug does not fit the release before it; treated as a new release"]))
+            words = set(s.words)
+            continue
+        if groups and (s.cont or not s.starts):
+            words |= s.words
+        else:
+            words = set(s.words)
         if not groups:
             groups.append(Group([i], ["the first page looks like a continuation (page number or 'continued' at "
                                       "the top); the start of its release is missing"] if s.cont and not s.starts else []))

@@ -1,5 +1,5 @@
 """Grouping scanned pages into releases: a release can run over several pages."""
-from extractor.pages import PageSignals, group_pages, page_signals
+from extractor.pages import PageSignals, group_pages, has_release_header, page_signals
 
 from .test_units import layout_page
 
@@ -97,10 +97,34 @@ def test_a_header_lost_by_the_first_read_is_found_by_a_sparse_read(monkeypatch):
     sparse = layout_page([*letterhead, (150, 215, "July 29, 1969"),
                           (150, 250, "FOR IMMEDIATE RELEASE"), (700, 250, "Contact: John Doe"), *body])
     monkeypatch.setattr(ocr, "tesseract_lines", lambda *a, **k: sparse)
-    assert not page_signals(first).starts
+    assert not has_release_header(first)  # the letterhead marks a first page, but there is no date
     lines = pipeline._sparse_header(None, first, "eng", False)
     assert page_signals(lines).starts
     assert [ln.text for ln in lines] == [ln.text for ln in sparse]
 
     monkeypatch.setattr(ocr, "tesseract_lines", lambda *a, **k: first)  # nothing better found: unchanged
     assert pipeline._sparse_header(None, first, "eng", False) is first
+
+
+def test_a_letterhead_marks_a_first_page_and_a_lone_number_under_it_is_a_speck():
+    memo = sig(["SPORTS NEWS", "ROCHESTER INSTITUTE OF TECHNOLOGY",
+                "One Lomb Memorial Drive Rochester, New York 14623", "MEMO TO SPORTS EDITORS", *BODY])
+    assert memo.starts and not memo.cont  # undated, but on first-page stationery
+    speck = sig(["NEWS from ROCHESTER INSTITUTE OF TECHNOLOGY", "6", "IMMEDIATE RELEASE Contact: Jack M. Tucker",
+                 "September 19, 1969", *BODY])
+    assert speck.starts and not speck.cont
+
+
+def test_add_n_marks_a_later_page():
+    assert sig(["RIT/Annual Women's Tea", "-~add 1-", *BODY]).cont
+    assert sig(["RIT/Fillers", "-- add l -- FALL SPORTS FILLERS", *BODY]).cont
+
+
+def test_a_later_page_whose_slug_does_not_fit_starts_a_new_release():
+    memo = sig(["September 10, 1969", "Memo to editors", "Re: RIT news release dated Sept. 9 concerning the apprentice program"])
+    tea = sig(["FOR IMMEDIATE RELEASE", "September 9, 1969", "The annual fall tea for new women faculty members"])
+    fillers = sig(["RIT/Fillers", "-- add 1 -- FALL SPORTS FILLERS", *BODY])
+    tea2 = sig(["RIT/Annual Women's Tea", "-~add 1-", *BODY])
+    groups = group_pages([tea, tea2, memo, fillers])
+    assert [g.pages for g in groups] == [[0, 1], [2], [3]]
+    assert groups[2].flags and not groups[0].flags

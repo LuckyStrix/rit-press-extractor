@@ -258,3 +258,55 @@ def test_rows_the_column_read_missed_are_read_again_one_by_one():
     assert all(c[0] == box[0] and c[2] == box[2] for c in cells)
     dated = {w.box[1] for w in days}
     assert not tops & dated
+
+
+# A September 1969 list whose second page carries on with no title or headings (box2folder3).
+SEPT_HEAD = [(400, 100, "NEWS RELEASES SENT OUT"), (180, 160, "MONTH September 1969"),
+             (150, 240, "Date"), (420, 240, "Subject"), (900, 240, "Additional Info.")]
+
+
+def test_notes_beside_a_subject_that_runs_up_to_their_column_are_left_out():
+    lines = layout_page([*SEPT_HEAD,
+                         (150, 330, "9"), (260, 330, "Annual Women's Tea"), (800, 330, "Code 1-17"),
+                         (150, 400, "10"), (260, 400, "Gulf Oil grant"), (800, 400, "Some picture sent"),
+                         # this subject ends 48px (under two line heights) before its notes
+                         (150, 470, "10"), (260, 470, "Apprentice program: Lithographers & photo"),
+                         (800, 470, "Code 2, Horton"),
+                         (150, 540, "11"), (260, 540, "Ilex Optical Co. donation"), (800, 540, "Code 1")])
+    subjects = [e.subject for e in parse_list_pages([lines]).entries]
+    assert subjects == ["Annual Women's Tea", "Gulf Oil grant", "Apprentice program: Lithographers & photo",
+                        "Ilex Optical Co. donation"]
+
+
+def test_a_continued_page_reads_its_days_and_notes_like_the_page_before():
+    first = layout_page([*SEPT_HEAD, (150, 330, "19"), (260, 330, "Transportation Seminar"), (800, 330, "Code 2")])
+    rows = [(260, 100, "11th annual management seminar"), (800, 100, "Code 1-1,2,3,4"),  # its day was dropped
+            (150, 170, "23"), (260, 170, "Alumni golf tournament"), (800, 170, "Code 5"),
+            (150, 240, "25"), (260, 240, "Alumni club of Tricity area"), (800, 240, "Tri-city area"),
+            (150, 310, "26"), (260, 310, "Architects"), (800, 310, "Canadian publishers"),
+            (150, 380, "29"), (210, 380, "Raymond DaBoll"),  # a tab, not two line heights, after the day
+            (150, 450, "30"), (260, 450, "Westvaco story")]
+    second = layout_page(rows)
+    box = day_column(second)
+    assert box is not None and 174 <= box[2] < 210  # right of the days, left of every subject
+    dropped = Word("22", 96.0, (150, 100, 174, 130))
+    result = parse_list_pages([first, with_days(second, [dropped])])
+    got = [(e.date.isoformat(), e.subject) for e in result.entries]
+    assert got == [("1969-09-19", "Transportation Seminar"), ("1969-09-22", "11th annual management seminar"),
+                   ("1969-09-23", "Alumni golf tournament"), ("1969-09-25", "Alumni club of Tricity area"),
+                   ("1969-09-26", "Architects"), ("1969-09-29", "Raymond DaBoll"), ("1969-09-30", "Westvaco story")]
+
+
+def test_a_day_the_column_read_was_unsure_of_is_read_again_on_its_own(monkeypatch):
+    from extractor import ocr, pipeline
+
+    column = (0, 100, 300, 900)
+    sure, unsure = Word("18", 96.0, (150, 200, 174, 230)), Word("9", 0.0, (160, 300, 174, 330))  # it says "19"
+    asked = []
+    monkeypatch.setattr(ocr, "tesseract_digits", lambda img, box, cell=False: asked.append(box) or [
+        Word("19", 97.0, (150, 300, 174, 330))])
+    assert pipeline._reread_day(None, column, sure) is sure and not asked
+    assert pipeline._reread_day(None, column, unsure).text == "19"
+    assert asked == [(0, 290, 300, 340)]  # its own cell, a little taller than the digit
+    monkeypatch.setattr(ocr, "tesseract_digits", lambda img, box, cell=False: [Word("85", 69.0, box)])
+    assert pipeline._reread_day(None, column, unsure) is unsure  # an unsure re-read changes nothing

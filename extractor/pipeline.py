@@ -7,8 +7,8 @@ from PIL import Image
 
 from . import ocr
 from .layout import HEADER_CUE, body_words, find_slug
-from .models import Line
-from .pages import HEAD, PageSignals, page_signals
+from .models import Line, Word
+from .pages import HEAD, PageSignals, has_release_header, page_signals
 from .listpage import (day_column, has_month_line, header_band, is_list_page, missing_day_cells, with_days,
                        with_month_line)
 from .reread import regions_from, reread, reread_trocr
@@ -18,6 +18,7 @@ from .words import LANG_TO_TESS, detect_language
 
 LOW_RES_WIDTH = 1500
 OPENING_WORDS = 40  # article words kept to match list-page subjects against
+DAY_SURE, REREAD_SURE = 70, 90  # confidence of a list day read in its column, and of its re-read
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,7 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
             lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), tess_lang, psm=11, best=best))
         if box := day_column(lines):
-            days = ocr.tesseract_digits(page_img, box)
+            days = [_reread_day(page_img, box, w) for w in ocr.tesseract_digits(page_img, box)]
             for cell in missing_day_cells(with_days(lines, days), box):
                 days += ocr.tesseract_digits(page_img, cell, cell=True)
             lines = with_days(lines, days)
@@ -208,13 +209,23 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     return PageResult(row, signals, slug, opening)
 
 
+def _reread_day(page_img: Image.Image, column: tuple[int, int, int, int], day: Word) -> Word:
+    """A day the column read was unsure of, read again on its own: two days typed close
+    together can read as one wrong number ("19" as "9"). The new reading is kept only if sure."""
+    if day.conf >= DAY_SURE:
+        return day
+    pad = (day.box[3] - day.box[1]) // 3
+    again = ocr.tesseract_digits(page_img, (column[0], day.box[1] - pad, column[2], day.box[3] + pad), cell=True)
+    best = max(again, key=lambda w: w.conf, default=None)
+    return best if best and best.conf >= REREAD_SURE else day
+
+
 def _sparse_header(page_img: Image.Image, lines: list[Line], tess_lang: str, best: bool) -> list[Line]:
     """A page with neither a release header nor a page number at the top would be joined to the
     release before it. When a date is typed just above "FOR IMMEDIATE RELEASE", Tesseract can
     read the two as one garbled line and drop it, so look again in sparse-text mode (which keeps
     such lines apart) and, if that finds a release line, use its reading of the header."""
-    signals = page_signals(lines)
-    if signals.starts or signals.cont:
+    if has_release_header(lines) or page_signals(lines).cont:  # a letterhead alone has no date
         return lines
     sparse = ocr.tesseract_lines(page_img, tess_lang, psm=11, best=best)
     cues = [ln for ln in sparse[:HEAD] if HEADER_CUE.search(ln.text)]
