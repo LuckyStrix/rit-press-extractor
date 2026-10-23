@@ -371,10 +371,13 @@ def cmd_debug(args) -> int:
     from . import netguard
 
     netguard.enable()
-    from .debug import dump
+    from .debug import dump, dump_list
 
     for p in args.files:
-        dump(Path(p), args.unmasked)
+        if args.list_pages:
+            dump_list(Path(p), [int(n) for n in args.list_pages.split(",")])
+        else:
+            dump(Path(p), args.unmasked)
     return 0
 
 
@@ -481,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("debug", help="print OCR line layout with letters masked (safe to share)")
     s.add_argument("files", nargs="+")
     s.add_argument("--unmasked", action="store_true", help="show real text (for your eyes only)")
+    s.add_argument("--list-pages", metavar="N,N", help="show, with real text, how these list pages are read")
     s.set_defaults(func=cmd_debug)
 
     s = sub.add_parser("truth", help="type the correct answers for a folder of photos (answer key)")
