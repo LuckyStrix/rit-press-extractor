@@ -310,3 +310,21 @@ def test_a_day_the_column_read_was_unsure_of_is_read_again_on_its_own(monkeypatc
     assert asked == [(0, 290, 300, 340)]  # its own cell, a little taller than the digit
     monkeypatch.setattr(ocr, "tesseract_digits", lambda img, box, cell=False: [Word("85", 69.0, box)])
     assert pipeline._reread_day(None, column, unsure) is unsure  # an unsure re-read changes nothing
+
+
+def test_a_list_line_read_with_unsure_words_is_read_again_on_its_own(monkeypatch):
+    from PIL import Image
+
+    from extractor import ocr, pipeline
+    page = Image.new("L", (1000, 1000), 255)
+    sure = Line([Word("Gulf", 95.0, (100, 300, 160, 330)), Word("Oil", 93.0, (170, 300, 210, 330))])
+    garbled = Line([Word("Aperentic=", 30.0, (100, 400, 260, 430)), Word("si", 20.0, (270, 400, 300, 430))])
+    clean = Line([Word("Apprentice", 91.0, (100, 400, 260, 430)), Word("program", 90.0, (270, 400, 380, 430))])
+    asked = []
+    monkeypatch.setattr(ocr, "tesseract_line", lambda img, box, lang, best=False: asked.append(box) or clean)
+    assert pipeline._reread_line(page, sure, "eng", False) is sure and not asked
+    assert pipeline._reread_line(page, garbled, "eng", False) is clean
+    assert asked == [(90, 390, 310, 440)]  # the line, with a margin
+    monkeypatch.setattr(ocr, "tesseract_line", lambda img, box, lang, best=False: Line(
+        [Word("Aperentlc", 30.0, box)]))
+    assert pipeline._reread_line(page, garbled, "eng", False) is garbled  # not clearly surer: kept

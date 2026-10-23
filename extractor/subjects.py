@@ -26,6 +26,7 @@ FALLBACK_MIN, FALLBACK_MARGIN = 0.6, 0.3  # stricter when the date can't narrow 
 MAX_CANDIDATES = 4
 SAME_TEXT = 0.9  # releases whose opening text agrees this closely are copies of one release
 ORDER_BONUS = 0.02  # tie-break only: the list and the scan pile are in the same order
+BACKING_LEN = 5  # the shortest word that backs a match made by elimination
 _STOP = {"the", "and", "for", "from", "with", "new", "of"}
 
 
@@ -81,7 +82,8 @@ class _Scorer:
             self._release[key] = set(_tokens(r.slug, parts=True)) | set(_tokens(r.text, parts=True))
         return self._release[key]
 
-    def score(self, r: Release, entry_idx: int) -> float:
+    def score(self, r: Release, entry_idx: int, min_len: int = 0) -> float:
+        """min_len: only words this long count as support (a short one, "time", turns up by chance)."""
         toks = self.tokens[entry_idx]
         pool = self.release_tokens(r)
         total = sum(self.idf[t] for t in toks)
@@ -89,6 +91,8 @@ class _Scorer:
             return 0.0
         got = 0.0
         for t in toks:
+            if len(t) < min_len:
+                continue
             if t in pool:
                 got += self.idf[t]
             elif len(t) >= 4:  # OCR noise: one or two characters off
@@ -148,10 +152,11 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
 def _eliminate(releases: list[Release], entries: list[ListEntry], scorer: _Scorer, matches: dict,
                touched: set) -> None:
     """A release still without a subject gets an entry no release has taken, unverified: the
-    only one of those listed within a day of its date that its text supports at all, or, with
-    no support, the only one listed within a day that is listed on its very day. Some entries
-    have no release in the folder, so a release only takes an entry its text supports better
-    than that of every other waiting release that could take it."""
+    only one of those listed within a day of its date that its text supports (by a word of
+    five letters or more), or, with no support, the only one listed within a day that is
+    listed on its very day. Some entries have no release in the folder, so a release only
+    takes an entry its text supports better than that of every other waiting release that
+    could take it."""
     changed = True
     while changed:
         changed = False
@@ -162,7 +167,7 @@ def _eliminate(releases: list[Release], entries: list[ListEntry], scorer: _Score
         waiting = [r for r in releases if near.get(r.key)]
         for r in waiting:
             cands = near[r.key]
-            backed = [i for i in cands if scorer.score(r, i) > 0]
+            backed = [i for i in cands if scorer.score(r, i, BACKING_LEN) > 0]
             pick = backed[0] if len(backed) == 1 else None
             if not backed and len(cands) == 1 and entries[cands[0]].date == r.date:
                 pick = cands[0]

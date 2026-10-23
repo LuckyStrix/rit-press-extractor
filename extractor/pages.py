@@ -101,8 +101,9 @@ def group_pages(pages: list[PageSignals]) -> list[Group]:
     groups: list[Group] = []
     words: set[str] = set()  # of the release being built
     for i, s in enumerate(pages):
-        if groups and s.tag and not s.tag & words and not s.starts:
-            # A later page's slug names something the release so far never mentions.
+        if groups and s.tag and not s.tag & words and not s.starts and not pages[groups[-1].pages[-1]].more:
+            # A later page's slug names something the release so far never mentions (unless the
+            # page before said "-more-": then the slug is more likely misread).
             groups.append(Group([i], ["a page's slug does not fit the release before it; treated as a new release"]))
             words = set(s.words)
             continue

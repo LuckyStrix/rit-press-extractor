@@ -174,6 +174,24 @@ def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int], cell: boo
     return words
 
 
+def tesseract_line(img: Image.Image, box: tuple[int, int, int, int], lang: str, best: bool = False) -> Line:
+    """One line of text read on its own, with a white margin around it, in page coordinates.
+    A line next to handwriting can come out garbled in a full-page read and clean by itself."""
+    extra = ["--tessdata-dir", str(TESSDATA_BEST)] if best and best_model_available(lang) else []
+    crop = ImageOps.expand(img.crop(box).convert("L"), CELL_PAD, fill=255)
+    tsv = _run_tesseract(crop, [
+        *extra, "-l", lang, "--psm", "7", "--dpi", "300",
+        "-c", "tessedit_create_tsv=1", "-c", "tessedit_create_txt=0",
+    ])
+    x0, y0 = box[0] - CELL_PAD, box[1] - CELL_PAD
+    words = []
+    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE):
+        if row["level"] == "5" and (text := (row.get("text") or "").strip()):
+            x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
+            words.append(Word(text, float(row["conf"]), (x0 + x, y0 + y, x0 + x + w, y0 + y + h)))
+    return Line(split_dashes(words))
+
+
 @lru_cache(maxsize=4)
 def _easy_reader(langs: tuple[str, ...]):
     import easyocr  # heavy import; only load when needed

@@ -19,6 +19,7 @@ from .words import LANG_TO_TESS, detect_language
 LOW_RES_WIDTH = 1500
 OPENING_WORDS = 40  # article words kept to match list-page subjects against
 DAY_SURE, REREAD_SURE = 70, 90  # confidence of a list day read in its column, and of its re-read
+LINE_SURE, LINE_GAIN = 60, 10  # a list line with a word read below this is read again; kept if surer by this
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,7 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     if lines is None:
         lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
     if detect_list and is_list_page(lines):
+        lines = [_reread_line(page_img, ln, tess_lang, best) for ln in lines]
         if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
             lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), tess_lang, psm=11, best=best))
         if box := day_column(lines):
@@ -218,6 +220,21 @@ def _reread_day(page_img: Image.Image, column: tuple[int, int, int, int], day: W
     again = ocr.tesseract_digits(page_img, (column[0], day.box[1] - pad, column[2], day.box[3] + pad), cell=True)
     best = max(again, key=lambda w: w.conf, default=None)
     return best if best and best.conf >= REREAD_SURE else day
+
+
+def _reread_line(page_img: Image.Image, line: Line, lang: str, best: bool) -> Line:
+    """A list line with a word the page read was unsure of, read again on its own; the new
+    reading is kept only if Tesseract is clearly surer of it as a whole."""
+    if min(w.conf for w in line.words) >= LINE_SURE:
+        return line
+    x0, y0, x1, y1 = line.box
+    pad = (y1 - y0) // 3
+    box = (max(x0 - pad, 0), max(y0 - pad, 0), min(x1 + pad, page_img.width), min(y1 + pad, page_img.height))
+    again = ocr.tesseract_line(page_img, box, lang, best)
+    if not again.words:
+        return line
+    mean = lambda ln: sum(w.conf for w in ln.words) / len(ln.words)
+    return again if mean(again) >= mean(line) + LINE_GAIN else line
 
 
 def _sparse_header(page_img: Image.Image, lines: list[Line], tess_lang: str, best: bool) -> list[Line]:

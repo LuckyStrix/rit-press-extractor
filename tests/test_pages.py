@@ -128,3 +128,10 @@ def test_a_later_page_whose_slug_does_not_fit_starts_a_new_release():
     groups = group_pages([tea, tea2, memo, fillers])
     assert [g.pages for g in groups] == [[0, 1], [2], [3]]
     assert groups[2].flags and not groups[0].flags
+
+
+def test_a_misread_slug_after_more_stays_with_its_release():
+    first = sig(["FOR IMMEDIATE RELEASE", "September 15, 1969", "Two young Englishmen will lecture this fall", *BODY, "-more-"])
+    second = sig(["RIT /FAG ot SL AAotions", "Both bachelors, they are sharing an apartment", *BODY, "-30-"])
+    assert second.tag and not second.tag & first.words
+    assert [g.pages for g in group_pages([first, second])] == [[0, 1]]

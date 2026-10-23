@@ -134,3 +134,12 @@ def test_a_release_its_day_cannot_settle_still_lists_a_near_entry_from_another_d
                 release("b", 19, "", "A grant for bio-medical photography from the Public Health Service")]
     m = match_subjects(releases, entries).matches["a"]
     assert (m.entry, m.method, m.confident) == (1, "date", False)  # the only near entry its text supports
+
+
+def test_a_short_word_in_common_does_not_back_a_match_by_elimination():
+    # The list line was misread; "Times" is in it only by chance and "time" in the soccer story.
+    entries = [entry(10, "Aperentic= si ae Times ce Glace, goto")]
+    releases = [release("soccer", 9, "", "Things are changing in RIT soccer. There was a time when"),
+                release("union", 9, "", "Local 230, Lithographers and Photoengravers, is sponsoring a program")]
+    res = match_subjects(releases, entries)
+    assert res.matches["soccer"].entry is None and res.matches["union"].entry is None
