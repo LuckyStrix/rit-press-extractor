@@ -61,8 +61,11 @@ def _near(token: str, targets: tuple[str, ...] | list[str], cutoff: float = 0.75
 
 def is_list_page(lines: list[Line]) -> bool:
     for ln in lines[:6]:
-        tokens = _norm(ln.text).split()
-        if sum(_near(t, TITLE_WORDS) for t in tokens) >= 3:
+        # Three different title words: a release letterhead's "New York ... NEWS RELEASE" is
+        # news, news, releases.
+        found = {close[0] for t in _norm(ln.text).split()
+                 if (close := difflib.get_close_matches(t, TITLE_WORDS, 1, 0.75))}
+        if len(found) >= 3:
             return True
     rows = lines[3:]  # a list is nearly all dated rows even when its title is unreadable
     dated = sum(1 for ln in rows if _STRICT_ROW.match(ln.text) and _edit1(_STRICT_ROW.match(ln.text)["mon"].lower()))

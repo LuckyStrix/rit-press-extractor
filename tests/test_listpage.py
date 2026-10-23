@@ -48,6 +48,10 @@ def test_list_page_is_recognised_by_its_title():
     assert is_list_page(PAGE1) and is_list_page(PAGE3)
     release = mkpage("NEWS from ROCHESTER INSTITUTE OF TECHNOLOGY", "FOR IMMEDIATE RELEASE", "November 2, 1970")
     assert not is_list_page(release)
+    letterhead = mkpage("ROCHESTER INSTITUTE OF TECHNOLOGY", "Office of Public Relations",
+                        "Rochester, New York 14623 NEWS RELEASE", "IMMEDIATE RELEASE Contact: Jack M. Tucker",
+                        "September 11, 1969")
+    assert not is_list_page(letterhead)
 
 
 def test_list_page_is_recognised_without_a_readable_title():
