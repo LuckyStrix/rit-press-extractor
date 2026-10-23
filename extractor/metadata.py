@@ -23,7 +23,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = PROJECT_DIR / "local" / "metadata_template.json"
 # What a column value can use: every results CSV column, plus these.
 EXTRA_FIELDS = ("title",)  # the list-page subject, else the first five words
-_PDF_DATE = re.compile(r"(?:D:)?(\d{4})(\d{2})?(\d{2})?")
+_PDF_DATE = re.compile(r"(?:D:)?(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?")  # D:20261023..., or 2026-10-23T... (Scan2Net)
 
 
 class Template:

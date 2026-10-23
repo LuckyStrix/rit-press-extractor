@@ -83,6 +83,9 @@ def test_digitized_date_comes_from_the_pdf_photo_or_file(tmp_path):
     Image.new("RGB", (4, 4)).save(plain)
     os.utime(plain, (dt.datetime(2020, 1, 2, 12).timestamp(),) * 2)
     assert digitized_date(pdf) == "2019-03-04"
+    iso = tmp_path / "scanner.pdf"  # a Scan2Net scanner writes the date as ISO text, not D:yyyymmdd
+    iso.write_bytes(pdf.read_bytes().replace(b"D:20190304120000Z", b"2026-10-23T06:52:16+06:00"))
+    assert digitized_date(iso) == "2026-10-23"
     assert digitized_date(photo) == "2023-07-08"
     if not hasattr(plain.stat(), "st_birthtime") and os.name != "nt":  # Linux keeps no creation date
         assert digitized_date(plain) == "2020-01-02"
