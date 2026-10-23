@@ -27,8 +27,16 @@ _STRICT_ROW = re.compile(r"^[\W_]*(?P<mon>[A-Za-z]{3})[a-z]{0,3}\.?\s*\d{1,2}\b"
 _LOOKALIKE = str.maketrans("OoIlSsBb", "00115588")
 _JUNK = re.compile(r"\s*[|\[\]{}]\s*")
 _DAY = re.compile(r"^\d{1,2}$")
+_MORE = re.compile(r"^[\W_]*\(?\s*more\s*\)?[\W_]*$", re.I)  # "-more-" at the foot: the list goes on
 COLUMN_GAP = 2.0  # a gap this many line heights wide separates two columns, not two words
 DAY_GAP = 1.0  # a typed tab after a row's day, wider than a space
+DAY_VOTES = 2  # readings of the "Date" column that must find a day at a spot for it to count
+DAY_ORDER_COST = 1.5  # votes a reading gives up when it puts a day before the one above it
+DAY_DRIFT = 4  # line heights a day can stand off the middle of its column (typed further left)
+BARE_ROWS = 4  # fewest dated rows on a list page whose days only a read of its day column finds
+BARE_MARGIN = 8  # line heights from the page edge to where such a page's subjects start
+WRAP_INDENT = 4  # an undated line set in this many line heights from the subjects' edge is a wrap
+DAY_COLUMN_ROWS = 0.8  # share of rows that start right of the "Date" heading on a list with a day column
 COLUMN_SLACK = 4  # notes start up to this many line heights left of their column's header word
 WRAP_PITCH = 0.75  # a wrapped line sits closer to the line above than this share of an entry's spacing
 SINGLE_SPACED = 1.8  # entries this many line heights apart are typed on consecutive lines
@@ -85,6 +93,28 @@ def _is_continued_list(lines: list[Line]) -> bool:
             and 1 <= int(ln.words[0].text) <= 31]
     ordered = sum(a <= b for a, b in zip(days, days[1:]))
     return len(days) >= 5 and len(days) >= 0.6 * len(rows) and ordered >= 0.8 * (len(days) - 1)
+
+
+def bare_day_column(lines: list[Line]) -> Box | None:
+    """Where the days would be on a list's next page if the page read dropped every one of them
+    (there is no title or heading either): the strip left of where most lines start together,
+    set in from the margin. Whether days are really there is for a read of the strip to say."""
+    rows = [ln for ln in lines if ln.words]
+    if len(rows) < BARE_ROWS:
+        return None
+    height = _height(rows)
+    starts = sorted(ln.box[0] for ln in rows)
+    edge = starts[len(starts) // 4]
+    if edge < BARE_MARGIN * height or sum(abs(x - edge) <= 2 * height for x in starts) < 0.6 * len(rows):
+        return None
+    return 0, min(ln.box[1] for ln in rows) - round(height), edge - round(height), max(ln.box[3] for ln in rows)
+
+
+def days_in_order(days: list[Word], rows: int) -> bool:
+    """Do these days, read beside this many rows, look like a list's: one for most rows, in order?"""
+    found = [int(w.text) for w in days if _DAY.match(w.text) and 1 <= int(w.text) <= 31]
+    ordered = sum(a <= b for a, b in zip(found, found[1:]))
+    return len(found) >= max(BARE_ROWS, 0.6 * rows) and ordered >= 0.8 * (len(found) - 1)
 
 
 def _edit1(token: str) -> str | None:
@@ -168,14 +198,17 @@ def day_column(lines: list[Line]) -> Box | None:
         return None
     # Where the subjects start. The page read may keep a row's day in front of it; that day is
     # in the column, not its right edge.
-    left = min((ln.words[1] if _DAY.match(ln.words[0].text) and len(ln.words) > 1 else ln.words[0]).box[0]
-               for ln in rows)
+    starts = [(ln.words[1] if _DAY.match(ln.words[0].text) and len(ln.words) > 1 else ln.words[0]).box[0]
+              for ln in rows]
     if date_word is None:
-        right = left - round(_height(rows))
+        right = min(starts) - round(_height(rows))
         return (0, lines[head].box[3], right, max(ln.box[3] for ln in rows)) if right > 0 else None
-    if left < date_word.box[2]:
-        return None  # the dates are typed at the start of each row
-    return 0, lines[head].box[3], (date_word.box[2] + left) // 2, max(ln.box[3] for ln in rows)
+    # A day typed over another can read as a garbled word glued to its row ("#514 Photographic").
+    # Only when most rows start under the heading are the dates typed at the start of each row.
+    clear = [x for x in starts if x >= date_word.box[2]]
+    if len(clear) < DAY_COLUMN_ROWS * len(starts):
+        return None
+    return 0, lines[head].box[3], (date_word.box[2] + min(clear)) // 2, max(ln.box[3] for ln in rows)
 
 
 def _continued_day_column(lines: list[Line]) -> Box | None:
@@ -192,25 +225,89 @@ def _continued_day_column(lines: list[Line]) -> Box | None:
     return 0, min(ln.box[1] for ln in rows), right, max(ln.box[3] for ln in rows)
 
 
-def with_days(lines: list[Line], days: list[Word]) -> list[Line]:
+def vote_days(reads: list[list[Word]]) -> list[Word]:
+    """One day per row from several readings of the "Date" column. A single reading of a column
+    of short, closely stacked numbers is fragile (three "15"s read as "5", "45", "25", or one
+    left out), but the readings go wrong in different places. A day stands where at least two
+    readings found a possible day (1-31); of what they read there, the most common wins, unless
+    another reading keeps the days in order (a list mostly runs from the 1st on down)."""
+    found = sorted(((w, i) for i, read in enumerate(reads) for w in read
+                    if _DAY.match(w.text) and 1 <= int(w.text) <= 31), key=lambda wi: wi[0].box[1] + wi[0].box[3])
+    if not found:
+        return []
+    height = _height([Line([w for w, _ in found])])
+    spots: list[list[tuple[Word, int]]] = []
+    for w, i in found:
+        mid = (w.box[1] + w.box[3]) / 2
+        spot = spots[-1] if spots else None
+        if spot and abs(mid - sum((v.box[1] + v.box[3]) / 2 for v, _ in spot) / len(spot)) < height / 2 \
+                and i not in {j for _, j in spot}:
+            spot.append((w, i))
+        else:
+            spots.append([(w, i)])
+    spots = [s for s in spots if len(s) >= DAY_VOTES]
+    # Choose a reading for each spot: votes for it, less a penalty each time the days go back.
+    options = [Counter(w.text for w, _ in s) for s in spots]
+    best: dict[str, tuple[float, list[str]]] = {"": (0.0, [])}
+    for votes in options:
+        best = {text: max(((score + n - (DAY_ORDER_COST if prev and int(text) < int(prev) else 0), path + [text])
+                           for prev, (score, path) in best.items()), key=lambda sp: sp[0])
+                for text, n in votes.items()}
+    chosen = max(best.values(), key=lambda sp: sp[0])[1]
+    return [max((w for w, _ in s if w.text == text), key=lambda w: w.conf) for s, text in zip(spots, chosen)]
+
+
+def with_days(lines: list[Line], days: list[Word], column: Box | None = None) -> list[Line]:
     """Put each day read from the "Date" column at the front of the row it sits beside. A punch
     hole or smudge in the margin can read as a digit; it is far taller than the typed days or
-    stands away from their column, so it is left out."""
+    stands away from their column, so it is left out. Days can sit a little above or below their
+    rows (typed on a different line spacing), so each goes to the nearest row once the page's
+    usual offset is allowed for, nearest pairs first and one day to a row. column: a garbled word
+    at the start of a row inside it (a day typed over another, "#514") keeps only its digits, so
+    the row is still an entry of its own with an unreadable day; one with no digits is dropped."""
     out = [Line(list(ln.words)) for ln in lines]
+    if column:
+        for ln in out:
+            while len(ln.words) > 1 and ln.words[0].box[2] <= column[2] and column[1] <= ln.box[1] < column[3] \
+                    and not _DAY.match(ln.words[0].text):
+                if digits := re.sub(r"\D", "", ln.words[0].text):
+                    ln.words[0] = Word(digits, ln.words[0].conf, ln.words[0].box)
+                    break
+                ln.words.pop(0)
     days = [w for w in days if _DAY.match(w.text)]
-    if days:
-        height = _height([Line(days)])
-        mid = sorted((w.box[0] + w.box[2]) / 2 for w in days)[len(days) // 2]
-        days = [w for w in days if w.box[3] - w.box[1] <= 1.6 * height
-                and abs((w.box[0] + w.box[2]) / 2 - mid) <= 3 * height]
-    for w in days:
-        # A speck can be read as a short line of its own beside the row; the day goes to the
-        # line it overlaps most.
-        overlaps = [(min(ln.box[3], w.box[3]) - max(ln.box[1], w.box[1]), ln) for ln in out if ln.words]
-        overlap, ln = max(overlaps, key=lambda o: o[0], default=(0, None))
-        if ln and overlap > 0.5 * min(ln.box[3] - ln.box[1], w.box[3] - w.box[1]):
-            if not _DAY.match(ln.words[0].text):
-                ln.words.insert(0, w)
+    if not days:
+        return out
+    height = _height([Line(days)])
+    mid_x = sorted((w.box[0] + w.box[2]) / 2 for w in days)[len(days) // 2]
+    days = [w for w in days if w.box[3] - w.box[1] <= 1.6 * height
+            and abs((w.box[0] + w.box[2]) / 2 - mid_x) <= DAY_DRIFT * height]
+    if not days:
+        return out
+    # Rows are the lines that start where the subjects do: not a speck read as a short line of
+    # its own beside a row, nor a line of notes in the "Additional Info." column.
+    right = max(w.box[2] for w in days)
+    start = lambda ln: (ln.words[1] if _DAY.match(ln.words[0].text) and len(ln.words) > 1 else ln.words[0]).box[0]
+    body = [ln for ln in out if ln.words and start(ln) > right and ln.box[2] > right + height]
+    edge = sorted(start(ln) for ln in body)[len(body) // 4] if body else 0
+    rows = [ln for ln in body if start(ln) <= edge + WRAP_INDENT * height]
+    if not rows:
+        return out
+    mid = lambda box: (box[1] + box[3]) / 2
+    offsets = sorted(min((mid(w.box) - mid(ln.box) for ln in rows), key=abs) for w in days)
+    offset = offsets[len(offsets) // 2]
+    pairs = sorted((abs(mid(w.box) - offset - mid(ln.box)), d, r) for d, w in enumerate(days)
+                   for r, ln in enumerate(rows))
+    used_days, used_rows = set(), set()
+    for gap, d, r in pairs:
+        if gap > height or d in used_days or r in used_rows:
+            continue
+        used_days.add(d)
+        used_rows.add(r)
+        first = rows[r].words[0]
+        if column and first.text.isdigit() and not _DAY.match(first.text) and first.box[2] <= column[2]:
+            rows[r].words[0] = days[d]  # a garbled day the column reads made out
+        elif not _DAY.match(first.text):  # the page read may have kept the day already
+            rows[r].words.insert(0, days[d])
     return out
 
 
@@ -309,18 +406,26 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
     additional_x, height = _additional_x(lines, head) or additional_x, _height(lines[start:])
     info_left = _info_left(lines[start:], additional_x, height)
     read: list[tuple[int, _Row]] = []  # each line's top and its reading
+    starts: list[int] = []  # where each line's subject starts
     for i, ln in enumerate(lines[start:], start):
         words = _subject_words(ln, additional_x, height, info_left)
         text = " ".join(w.text for w in words).strip()
-        if len(re.sub(r"[\W_]", "", text)) < 3:
+        if len(re.sub(r"[\W_]", "", text)) < 3 or _MORE.match(text):
             continue
-        read.append((ln.box[1], _row(page_no, i, Line(words), text, month, height)))
+        row = _row(page_no, i, Line(words), text, month, height)
+        read.append((ln.box[1], row))
+        skip = len(row.printed.split())  # the subject starts after the printed date
+        starts.append(words[skip].box[0] if skip < len(words) else words[0].box[0])
     limit = _wrap_limit(read, height)
+    dated = sorted(x for x, (_, r) in zip(starts, read) if r.abbr or r.day)
+    edge = dated[len(dated) // 4] if dated else None  # where the subjects start
     rows: list[_Row] = []
     last_top = 0  # top of the last line of the entry above
-    for top, row in read:
-        # A wrapped subject is typed closer to the line above it than entries are to each other.
-        if row.abbr is None and row.day is None and rows and limit and top - last_top < limit:
+    for (top, row), x in zip(read, starts):
+        # A wrapped subject is typed closer to the line above it than entries are to each other,
+        # or set in well to the right of where the subjects start.
+        wrapped = (limit and top - last_top < limit) or (edge is not None and x > edge + WRAP_INDENT * height)
+        if row.abbr is None and row.day is None and rows and wrapped:
             prev = rows[-1]
             prev.subject = _tidy(f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
@@ -347,7 +452,7 @@ def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: f
     words = ln.words
     # A day alone in the "Date" column, set apart from the subject: the month is the page's.
     first, rest = words[0], words[1:]
-    if month and rest and _DAY.match(first.text) and rest[0].box[0] - first.box[2] >= DAY_GAP * height:
+    if month and rest and first.text.isdigit() and rest[0].box[0] - first.box[2] >= DAY_GAP * height:
         day = int(first.text) if 1 <= int(first.text) <= 31 else None
         flags = [] if day else [f"day read as '{first.text}'; assumed same day as the entry above"]
         return _Row(month, day, None, first.text, _tidy(" ".join(w.text for w in rest)), min(w.conf for w in rest),

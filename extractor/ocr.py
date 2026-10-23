@@ -152,15 +152,20 @@ def tesseract_lines(img: Image.Image, lang: str, psm: int = 3, threshold: int = 
     return merge_rows(kept)
 
 
-def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int], cell: bool = False) -> list[Word]:
+def tesseract_digits(img: Image.Image, box: tuple[int, int, int, int], cell: bool = False,
+                     pad: int | None = None, gray: bool | None = None) -> list[Word]:
     """Numbers in one region (a column of days), in page coordinates. Read on their own because
     in a full-page read Tesseract often drops one or two digits standing apart from the text.
     cell: the region is one row's day, read as a single line with a white margin around it
-    (Tesseract misses a lone digit cropped tight)."""
+    (Tesseract misses a lone digit cropped tight). pad, gray: the white margin and whether to
+    read in grey, which by default go with cell."""
     x0, y0, _, _ = box
-    crop, pad = img.crop(box), CELL_PAD if cell else 0
-    if cell:
-        crop = ImageOps.expand(crop.convert("L"), pad, fill=255)
+    pad = (CELL_PAD if cell else 0) if pad is None else pad
+    crop = img.crop(box)
+    if cell if gray is None else gray:
+        crop = crop.convert("L")
+    if pad:
+        crop = ImageOps.expand(crop, pad, fill=255 if crop.mode == "L" else (255,) * len(crop.getbands()))
         x0, y0 = x0 - pad, y0 - pad
     tsv = _run_tesseract(crop, [
         "-l", "eng", "--psm", "7" if cell else "6", "--dpi", "300", "-c", "tessedit_char_whitelist=0123456789",

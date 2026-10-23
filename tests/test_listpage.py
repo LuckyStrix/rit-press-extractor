@@ -4,8 +4,8 @@ The garbled dates below are the kinds of misreads seen on real typed lists; name
 """
 import datetime as dt
 
-from extractor.listpage import (day_column, has_month_line, is_list_page, missing_day_cells, parse_list_pages,
-                                with_days, with_month_line)
+from extractor.listpage import (bare_day_column, day_column, days_in_order, has_month_line, is_list_page,
+                                missing_day_cells, parse_list_pages, vote_days, with_days, with_month_line)
 from extractor.models import Line, Word
 
 from .test_units import layout_page, mkline_at, mkpage
@@ -328,3 +328,78 @@ def test_a_list_line_read_with_unsure_words_is_read_again_on_its_own(monkeypatch
     monkeypatch.setattr(ocr, "tesseract_line", lambda img, box, lang, best=False: Line(
         [Word("Aperentlc", 30.0, box)]))
     assert pipeline._reread_line(page, garbled, "eng", False) is garbled  # not clearly surer: kept
+
+
+# An October 1969 list typed unevenly: days a little above their rows, some typed over or off to
+# the left, and a punch hole and a struck-out day in the "Date" column.
+def _day(text, y, x=150, conf=96.0):
+    return Word(text, conf, (x, y, x + 12 * len(text), y + 30))
+
+
+def test_several_readings_of_the_date_column_vote():
+    # Three "15"s stacked close: one reading gets them all, the others garble two of them.
+    good = [_day("14", 300), _day("15", 345), _day("15", 390), _day("15", 435), _day("16", 480)]
+    bad = [_day("14", 300), _day("15", 345), _day("5", 390), _day("45", 435), _day("16", 480)]
+    worse = [_day("14", 300), _day("5", 345, conf=0.0), _day("5", 390), _day("25", 435), _day("16", 480),
+             _day("2514", 520), _day("7", 600)]  # a struck-out day, and a speck only one reading saw
+    voted = vote_days([bad, good, worse, good])
+    assert [w.text for w in voted] == ["14", "15", "15", "15", "16"]
+
+
+def test_days_typed_above_their_rows_go_to_the_right_rows():
+    lines = layout_page([(150, 240, "Date"), (420, 240, "Subject"), (1200, 240, "Additional Info."),
+                         (420, 300, "Jacques Van Droogenbroeck visitor"), (420, 360, "Paul Kazmierski appointment"),
+                         (420, 420, "Hospital Management seminar"), (1200, 430, "Code 1, 2 info")])
+    days = [_day("9", 288), _day("10", 340), _day("10", 408)]  # a dozen pixels above each row
+    out = with_days(lines, days, (0, 270, 380, 460))
+    assert [ln.text for ln in out[1:4]] == ["9 Jacques Van Droogenbroeck visitor", "10 Paul Kazmierski appointment",
+                                            "10 Hospital Management seminar Code 1, 2 info"]
+
+
+def test_a_garbled_day_in_the_date_column_keeps_the_row_its_own_entry():
+    lines = layout_page([(180, 160, "MONTH October 1969"), (150, 240, "Date"), (420, 240, "Subject"),
+                         (1200, 240, "Additional Info."), (420, 300, "Sports different subjects"),
+                         (150, 340, "#514"), (420, 340, "Photographic symposium"),
+                         (150, 380, "PAE"), (420, 380, "PSA Student Film award")])
+    days = [_day("10", 300), _day("21", 380, x=200)]
+    result = parse_list_pages([with_days(lines, days, (0, 270, 380, 420))], 1969)
+    assert [(e.subject, e.date.day) for e in result.entries] == [
+        ("Sports different subjects", 10), ("Photographic symposium", 10), ("PSA Student Film award", 21)]
+    assert result.entries[1].flags == ["day read as '514'; assumed same day as the entry above"]
+
+
+def test_a_line_set_well_in_is_a_wrapped_subject_and_more_is_not_an_entry():
+    # "prospects" sits as far below its line as the next entry does; only being set in marks it.
+    lines = layout_page([(180, 160, "MONTH October 1969"), (150, 240, "Date"), (420, 240, "Subject"),
+                         (1200, 240, "Additional Info."), (420, 300, "Nasrin Keyhan -- American Craftsman student"),
+                         (420, 360, "Dr. Martin Gainsbrugh speech on economic"), (700, 420, "prospects"),
+                         (420, 480, "Renovation of Palmyra"), (600, 560, "more")])
+    days = [_day("20", 300), _day("21", 360), _day("22", 480)]
+    result = parse_list_pages([with_days(lines, days, (0, 270, 380, 600))], 1969)
+    assert [e.subject for e in result.entries] == [
+        "Nasrin Keyhan -- American Craftsman student", "Dr. Martin Gainsbrugh speech on economic prospects",
+        "Renovation of Palmyra"]
+
+
+def test_a_row_with_a_garbled_day_left_of_the_heading_does_not_hide_the_date_column():
+    lines, days = COLUMNS
+    garbled = [Line(list(ln.words)) for ln in lines]
+    row = next(ln for ln in garbled if ln.text.startswith("Joan Black"))
+    row.words.insert(0, Word("#514", 0.0, (100, row.box[1], 148, row.box[3])))
+    assert day_column(garbled) is not None
+
+
+def test_a_continued_list_whose_days_the_page_read_dropped_is_found_by_reading_beside_its_rows():
+    # No title, no headings, no days in the page read: only subjects, set in from the margin.
+    subjects = ["Student Chapter -- Society of Photographic Scientists", "Syracuse Club, Printing House Craftsmen",
+                "Indonesian Visitors", "Engineering Dept. accreditation by ECPD", "Robert R. Sponholz address",
+                "Scholarships awarded -- Rochester area"]
+    lines = layout_page([(660, 270 + 100 * i, s) for i, s in enumerate(subjects)])
+    box = bare_day_column(lines)
+    assert box is not None and box[2] < 660 and box[1] < 270
+    days = [_day(d, 270 + 100 * i, x=420) for i, d in enumerate(["24", "24", "25", "28", "29", "29"])]
+    assert days_in_order(days, len(lines))
+    assert not days_in_order(days[:2], len(lines))  # a stray number or two beside the rows is not a list
+    # A release page's body starts near the margin, so there is no strip for days beside it.
+    assert bare_day_column(layout_page([(150, 270 + 50 * i, "and the college will open a new laboratory")
+                                        for i in range(8)])) is None

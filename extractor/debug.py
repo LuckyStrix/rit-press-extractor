@@ -50,8 +50,8 @@ def dump_list(path: Path, pages: list[int]) -> None:
     the day column and the days read in it, and the dated entries. For comparing machines."""
     import subprocess
 
-    from .listpage import day_column, has_month_line, header_band, missing_day_cells, parse_list_pages, with_days
-    from .pipeline import Options, analyze_page
+    from .listpage import has_month_line, header_band, is_list_page, parse_list_pages
+    from .pipeline import read_list_page
 
     version = subprocess.run([ocr.TESSERACT, "--version"], capture_output=True, text=True)
     print(f"tesseract: {ocr.TESSERACT}\n{(version.stdout or version.stderr).strip()}\n")
@@ -64,20 +64,14 @@ def dump_list(path: Path, pages: list[int]) -> None:
               f"month line read: {has_month_line(lines)}, header band: {header_band(lines)}")
         for i, ln in enumerate(lines):
             print(f"  {i:3} x{ln.box[0]:5} y{ln.box[1]:5}  {ln.text}")
-        box = day_column(lines)
-        print(f"  day column: {box}")
-        if box:
-            days = ocr.tesseract_digits(page, box)
-            print("  days read: " + " ".join(f"{w.text}@y{w.box[1]}" for w in days))
-            print(f"  cells re-read: {missing_day_cells(with_days(lines, days), box)}")
-        result = analyze_page(img, path.name, page_no, opts=Options(engines=("tesseract",)), detect_list=True)
-        if result.list_lines is None:
+        if not is_list_page(lines):
             print("  NOT read as a list page")
             continue
+        used = read_list_page(page, lines, show=lambda step, value: print(f"  {step}: {value}"))
         print("  list lines as used:")
-        for ln in result.list_lines:
+        for ln in used:
             print(f"      x{ln.box[0]:5} y{ln.box[1]:5}  {ln.text}")
-        found.append(result.list_lines)
+        found.append(used)
     print("\nentries:")
     for e in parse_list_pages(found).entries:
         print(f"  {e.date} | printed {e.printed!r} | {e.subject} | {' | '.join(e.flags)}")

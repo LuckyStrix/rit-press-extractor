@@ -93,8 +93,10 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
         rows.append(row)
         members_of.append([(m.file, m.page) for m in members])
         date = row.release_date
+        # A later page's "RIT/<slug>" line names the release too ("RIT/ASEE Conference").
+        tags = " ".join(w for m in members[1:] for w in sorted(m.result.signals.tag))
         texts.append(Release(len(rows) - 1, _as_date(date), row.date_verified == "YES",
-                             first.result.slug, first.result.opening))
+                             " ".join(filter(None, [first.result.slug, tags])), first.result.opening))
 
     summary = {"list_pages": len(list_pages), "entries": 0, "releases": len(rows), "matched": 0,
                "ambiguous": 0, "no_subject": 0, "unmatched_entries": 0}

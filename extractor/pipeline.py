@@ -1,6 +1,7 @@
 """Full per-page pipeline: clean up image -> two OCR engines -> fields -> reconciled row."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 
 from PIL import Image
@@ -9,8 +10,8 @@ from . import ocr
 from .layout import HEADER_CUE, body_words, find_slug
 from .models import Line, Word
 from .pages import HEAD, PageSignals, has_release_header, page_signals
-from .listpage import (day_column, has_month_line, header_band, is_list_page, missing_day_cells, with_days,
-                       with_month_line)
+from .listpage import (DAY_DRIFT, bare_day_column, day_column, days_in_order, has_month_line, header_band,
+                       is_list_page, missing_day_cells, vote_days, with_days, with_month_line)
 from .reread import regions_from, reread, reread_trocr
 from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
@@ -19,6 +20,9 @@ from .words import LANG_TO_TESS, detect_language
 LOW_RES_WIDTH = 1500
 OPENING_WORDS = 40  # article words kept to match list-page subjects against
 DAY_SURE, REREAD_SURE = 70, 90  # confidence of a list day read in its column, and of its re-read
+# The "Date" column is read several ways (in grey or not, and with white margins of several
+# widths around it): each reading drops or garbles different days, so they vote.
+DAY_READS = ((False, 0), (True, 0), (True, ocr.CELL_PAD), (False, ocr.CELL_PAD), (True, 2 * ocr.CELL_PAD))
 LINE_SURE, LINE_GAIN = 60, 10  # a list line with a word read below this is read again; kept if surer by this
 
 
@@ -117,7 +121,7 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         reasons.append(f"unsupported script '{script}'; read as Latin")
     tess_lang = force_lang or ocr.SCRIPT_TO_TESS.get(script or "Latin", "eng")
     best = opts.best_model
-    lines = None
+    lines, bare = None, None
     if not force_lang and tess_lang != "eng":
         # OSD sometimes calls all-capitals English typescript Cyrillic. A non-Latin guess is only
         # trusted if an English read of the page is not clearly English.
@@ -129,15 +133,8 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         reasons.append(f"best model for '{tess_lang}' not installed (setup --tess-best); used standard model")
     if lines is None:
         lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
-    if detect_list and is_list_page(lines):
-        lines = [_reread_line(page_img, ln, tess_lang, best) for ln in lines]
-        if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
-            lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), tess_lang, psm=11, best=best))
-        if box := day_column(lines):
-            days = [_reread_day(page_img, box, w) for w in ocr.tesseract_digits(page_img, box)]
-            for cell in missing_day_cells(with_days(lines, days), box):
-                days += ocr.tesseract_digits(page_img, cell, cell=True)
-            lines = with_days(lines, days)
+    if detect_list and (is_list_page(lines) or (bare := _bare_list(page_img, lines))):
+        lines = read_list_page(page_img, lines, tess_lang, best, box=bare)
         return PageResult(None, page_signals(lines), list_lines=lines)
     lines = _sparse_header(page_img, lines, tess_lang, best)
     signals = page_signals(lines)
@@ -211,6 +208,42 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     return PageResult(row, signals, slug, opening)
 
 
+def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", best: bool = False,
+                   show: Callable[[str, object], None] = lambda step, value: None,
+                   box: tuple[int, int, int, int] | None = None) -> list[Line]:
+    """A list page's lines with what the page read lost put back: unsure lines read again, the
+    MONTH line, and the days of a "Date" column (box, if already known). show(step, value) sees
+    each step (debug)."""
+    lines = [_reread_line(page_img, ln, lang, best) for ln in lines]
+    if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
+        lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), lang, psm=11, best=best))
+    box = box or day_column(lines)
+    show("day column", box)
+    if box:
+        reads = [ocr.tesseract_digits(page_img, box, pad=pad, gray=gray) for gray, pad in DAY_READS]
+        for (gray, pad), read in zip(DAY_READS, reads):
+            show(f"days read ({'grey' if gray else 'colour'}, margin {pad})", " ".join(f"{w.text}@y{w.box[1]}" for w in read))
+        days = [_reread_day(page_img, box, w) for w in vote_days(reads)]
+        show("days voted", " ".join(f"{w.text}@y{w.box[1]}" for w in days))
+        cells = missing_day_cells(with_days(lines, days, box), box)
+        show("cells re-read", cells)
+        for cell in cells:
+            days += _read_day_cell(page_img, cell, days)
+        lines = with_days(lines, days, box)
+    return lines
+
+
+def _bare_list(page_img: Image.Image, lines: list[Line]) -> tuple[int, int, int, int] | None:
+    """The day column of a list's next page whose days the page read dropped, with its title and
+    headings on the page before: a page with no release header, letterhead or page number, its
+    lines starting together, and a day read beside most of them, in order."""
+    signals = page_signals(lines)
+    if signals.starts or signals.cont or not (box := bare_day_column(lines)):
+        return None
+    days = vote_days([ocr.tesseract_digits(page_img, box, pad=pad, gray=gray) for gray, pad in DAY_READS])
+    return box if days_in_order(days, sum(1 for ln in lines if ln.words)) else None
+
+
 def _reread_day(page_img: Image.Image, column: tuple[int, int, int, int], day: Word) -> Word:
     """A day the column read was unsure of, read again on its own: two days typed close
     together can read as one wrong number ("19" as "9"). The new reading is kept only if sure."""
@@ -235,6 +268,20 @@ def _reread_line(page_img: Image.Image, line: Line, lang: str, best: bool) -> Li
         return line
     mean = lambda ln: sum(w.conf for w in ln.words) / len(ln.words)
     return again if mean(again) >= mean(line) + LINE_GAIN else line
+
+
+def _read_day_cell(page_img: Image.Image, cell: tuple[int, int, int, int], days: list[Word]) -> list[Word]:
+    """A row's day the column reads missed, read on its own: from the page edge, and from a
+    little left of where the days stand (a punch hole at the edge can garble the first; the
+    second can lose a day typed further left). The surer reading of a possible day is kept."""
+    reads = ocr.tesseract_digits(page_img, cell, cell=True)
+    if days:
+        height = sorted(w.box[3] - w.box[1] for w in days)[len(days) // 2]
+        x0 = max(cell[0], sorted(w.box[0] for w in days)[len(days) // 2] - DAY_DRIFT * height)
+        if x0 > cell[0]:
+            reads += ocr.tesseract_digits(page_img, (x0, *cell[1:]), cell=True)
+    found = [w for w in reads if w.text.isdigit() and 1 <= int(w.text) <= 31]
+    return [max(found, key=lambda w: w.conf)] if found else []
 
 
 def _sparse_header(page_img: Image.Image, lines: list[Line], tess_lang: str, best: bool) -> list[Line]:

@@ -117,3 +117,15 @@ def test_shared_subject_uses_each_releases_own_first_words():
         assert (r.subject, r.subject_match, r.subject_verified) == ("Day-long public symposium", "shared", "YES")
         assert r.needs_review == "no"
     assert [e.subject for e in out.unmatched] == ["Susan Wolf - Co-op"]
+
+
+def test_a_later_pages_slug_line_helps_find_the_subject():
+    # The first page never says "ASEE"; its second page is headed "RIT/ASEE Conference".
+    later = PageIn("a.pdf", 2, "", PageResult(row("a.pdf", 2, ""), PageSignals(cont=True, tag={"asee", "conference"})))
+    pages = [list_page("Nov. 2, 1970 ASEE conference", "Nov. 2, 1970 Women's Club Fall luncheon"),
+             release_page("a.pdf", opening="Some of the top engineering muscle in the country will meet", more=True),
+             later,
+             release_page("b.pdf", opening="Annual fall luncheon of the Women's Club will be held")]
+    a, b = assemble_folder("f1", pages).rows
+    assert (a.subject, a.subject_match) == ("ASEE conference", "date+text")
+    assert b.subject == "Women's Club Fall luncheon"
