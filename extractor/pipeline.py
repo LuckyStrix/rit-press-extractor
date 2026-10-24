@@ -288,15 +288,22 @@ def _padded(page_img: Image.Image, box: tuple[int, int, int, int], pad: int) -> 
 
 
 def _read_day_cell(page_img: Image.Image, cell: tuple[int, int, int, int], days: list[Word]) -> list[Word]:
-    """A row's day the column reads missed, read on its own: from the page edge, and from a
+    """A row's day the column reads missed, read on its own, in a few crops, since a lone
+    number read by itself comes and goes with the exact crop: from the page edge and from a
     little left of where the days stand (a punch hole at the edge can garble the first; the
-    second can lose a day typed further left). The surer reading of a possible day is kept."""
-    reads = ocr.tesseract_digits(page_img, cell, cell=True)
+    second can lose a day typed further left), each as is and a little taller. The surest
+    reading of a possible day is kept."""
+    x0s, pad = [cell[0]], (cell[3] - cell[1]) // 4
     if days:
         height = sorted(w.box[3] - w.box[1] for w in days)[len(days) // 2]
-        x0 = max(cell[0], sorted(w.box[0] for w in days)[len(days) // 2] - DAY_DRIFT * height)
-        if x0 > cell[0]:
-            reads += ocr.tesseract_digits(page_img, (x0, *cell[1:]), cell=True)
+        x0s.append(max(cell[0], sorted(w.box[0] for w in days)[len(days) // 2] - DAY_DRIFT * height))
+        pad = height // 4
+    _, y0, x1, y1 = cell
+    reads = []
+    for x0 in dict.fromkeys(x0s):
+        for margin in (0, pad):
+            box = (x0, max(y0 - margin, 0), x1, min(y1 + margin, page_img.height))
+            reads += ocr.tesseract_digits(page_img, box, cell=True)
     found = [w for w in reads if w.text.isdigit() and 1 <= int(w.text) <= 31]
     return [max(found, key=lambda w: w.conf)] if found else []
 

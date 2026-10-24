@@ -435,3 +435,17 @@ def test_only_the_unsure_words_of_a_list_line_are_read_again_cropped_to_one_line
     monkeypatch.setattr(ocr, "tesseract_line", read)
     out = pipeline._reread_line(page, Line(garbled + notes), "eng", False)
     assert out.text == "Apprentice program code 2, Horton"
+
+
+def test_a_missed_day_is_read_in_a_few_crops_and_the_surest_kept(monkeypatch):
+    from PIL import Image
+
+    from extractor import ocr, pipeline
+    page = Image.new("L", (1000, 2000), 255)
+    days = [_day("10", 1505, x=421), _day("15", 1689, x=426)]
+
+    def read(img, box, cell=False):  # the exact cell cuts the top off "11"; a taller one reads it
+        return [Word("11", 96.0, (420, 1560, 460, 1600))] if box[1] < 1555 else [Word("1", 0.0, (440, 1560, 460, 1600))]
+
+    monkeypatch.setattr(ocr, "tesseract_digits", read)
+    assert [w.text for w in pipeline._read_day_cell(page, (0, 1555, 548, 1612), days)] == ["11"]
