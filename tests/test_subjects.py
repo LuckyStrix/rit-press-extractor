@@ -157,3 +157,12 @@ def test_a_days_last_release_and_entry_are_not_paired_when_another_release_names
                 release("gulf", 10, "", "Gulf Oil Corporation has given a capital grant of $15,000")]
     m = match_subjects(releases, entries).matches
     assert m["carson"].entry == 2 and m["golf"].entry is None
+
+
+def test_a_hyphenated_subject_word_matches_its_parts_written_apart():
+    entries = [entry(9, "Jacques Van Droogenbroeck -- Belgian visitor"), entry(9, "Operation-Tie up"),
+               entry(10, "Sports -- different subjects")]
+    releases = [release("belgian", 9, "", "Belgian people are american-minded, Jacques Van Droogenbroeck says"),
+                release("tie", 9, "", "OPERATION TIE-UP As college students across the nation gear up")]
+    m = match_subjects(releases, entries).matches
+    assert m["tie"].entry == 1 and m["tie"].method == "date+text"

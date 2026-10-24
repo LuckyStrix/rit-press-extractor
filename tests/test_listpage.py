@@ -455,3 +455,19 @@ def test_a_day_read_again_from_the_next_rows_cell_is_the_same_day():
     from extractor.pipeline import _same_spot
     eleven, one = Word("11", 96.0, (420, 1560, 460, 1600)), Word("1", 0.0, (440, 1575, 460, 1600))
     assert _same_spot(eleven, one) and not _same_spot(eleven, Word("15", 90.0, (420, 1690, 460, 1730)))
+
+
+def test_a_missed_days_cell_does_not_take_the_day_of_the_row_above(monkeypatch):
+    from PIL import Image
+
+    from extractor import ocr, pipeline
+    page = Image.new("L", (1000, 3200), 255)
+    above = _day("23", 2798, x=403)
+    smear = Word("2", 0.0, (81, 2853, 440, 2926))  # a punch hole and this row's day read as one
+    days = [_day("22", 2567, x=408), above, smear]
+
+    def read(img, box, cell=False):  # a crop reaching up reads the row above's "23" more surely
+        return [Word("23", 97.0, above.box)] if box[1] < 2856 else [Word("24", 83.0, (394, 2850, 440, 2884))]
+
+    monkeypatch.setattr(ocr, "tesseract_digits", read)
+    assert [w.text for w in pipeline._read_day_cell(page, (0, 2856, 548, 2912), days)] == ["24"]

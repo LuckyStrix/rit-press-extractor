@@ -230,8 +230,7 @@ def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", 
         cells = missing_day_cells(with_days(lines, days, box), box)
         show("cells re-read", cells)
         for cell in cells:
-            # Cells of neighbouring rows overlap: a day already found, read again, is not another.
-            days += [w for w in _read_day_cell(page_img, cell, days) if not any(_same_spot(w, d) for d in days)]
+            days += _read_day_cell(page_img, cell, days)
         lines = with_days(lines, days, box)
     return lines
 
@@ -314,7 +313,10 @@ def _read_day_cell(page_img: Image.Image, cell: tuple[int, int, int, int], days:
         for above, below in CELL_MARGINS:
             box = (x0, max(y0 - round(above * height), 0), x1, min(y1 + round(below * height), page_img.height))
             reads += ocr.tesseract_digits(page_img, box, cell=True)
-    found = [w for w in reads if w.text.isdigit() and 1 <= int(w.text) <= 31]
+    # A crop reaching into the row above or below can read that row's day: it is not this one.
+    # (A day read with no confidence, a punch hole and a day run together, is no such day.)
+    found = [w for w in reads if w.text.isdigit() and 1 <= int(w.text) <= 31
+             and not any(_same_spot(w, d) for d in days if d.conf >= DAY_SURE)]
     return [max(found, key=lambda w: w.conf)] if found else []
 
 

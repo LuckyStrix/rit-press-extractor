@@ -68,9 +68,17 @@ def _tokens(text: str, parts: bool = False) -> list[str]:
             for t in words if len(t) >= 3 and t not in _STOP]
 
 
+def _compounds(text: str) -> dict[str, list[str]]:
+    """A subject's hyphenated words, joined as _tokens joins them, and their parts: the release
+    may write them apart ("Operation-Tie up" against "OPERATION TIE-UP")."""
+    return {_tokens(w)[0]: parts for w in re.findall(r"\w+(?:-\w+)+", text.lower())
+            if _tokens(w) and len(parts := _tokens(w.replace("-", " "))) > 1}
+
+
 class _Scorer:
     def __init__(self, entries: list[ListEntry]):
         self.tokens = [_tokens(e.subject) for e in entries]
+        self.compounds = [_compounds(e.subject) for e in entries]
         df = Counter(t for toks in self.tokens for t in set(toks))
         n = len(entries)
         self.idf = {t: math.log((n + 1) / (c + 0.5)) for t, c in df.items()}
@@ -93,7 +101,7 @@ class _Scorer:
         for t in toks:
             if len(t) < min_len:
                 continue
-            if t in pool:
+            if t in pool or all(p in pool for p in self.compounds[entry_idx].get(t, [""])):
                 got += self.idf[t]
             elif len(t) >= 4:  # OCR noise: one or two characters off
                 best = max((difflib.SequenceMatcher(None, t, p).ratio() for p in pool if abs(len(p) - len(t)) <= 2),
