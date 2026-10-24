@@ -166,3 +166,17 @@ def test_a_hyphenated_subject_word_matches_its_parts_written_apart():
                 release("tie", 9, "", "OPERATION TIE-UP As college students across the nation gear up")]
     m = match_subjects(releases, entries).matches
     assert m["tie"].entry == 1 and m["tie"].method == "date+text"
+
+
+def test_a_release_can_share_its_entry_with_the_memo_correcting_it():
+    # Listed on the 10th, the day of the correction memo; the release itself went out on the 9th.
+    entries = [entry(9, "Annual Women's Tea"), entry(10, "Apprentice program -- Lithographers & photo-"),
+               entry(10, "Gulf Oil grant")]
+    releases = [release("tea", 9, "", "The annual fall tea for new women faculty members"),
+                release("union", 9, "", "Local 230, Lithographers and Photoengravers International Union, is "
+                                        "sponsoring a special apprentice program"),
+                release("memo", 10, "", "Memo to editors: in the release on the Lithographers apprentice program, "
+                                        "please make it read"),
+                release("gulf", 10, "", "Gulf Oil Corporation has given a capital grant of $15,000")]
+    m = match_subjects(releases, entries).matches
+    assert m["memo"].entry == 1 and (m["union"].entry, m["union"].method, m["union"].confident) == (1, "text", False)

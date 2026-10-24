@@ -130,17 +130,19 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
         _match_day(rels, by_day[day], scorer, matches, settled, touched)
 
     # A release its own day's entries could not settle (the list's day can be misread, or a
-    # day off) is tried against every entry still free, as is one whose date the list lacks.
+    # day off) is tried against the other entries, as is one whose date the list lacks. Its
+    # text must point clearly at one; that one may already be another release's (a line such
+    # as "Apprentice program AND CORRECTION" covers a release and the memo correcting it).
     free = [i for i in range(len(entries)) if i not in settled]
     unsettled = [r for rels in groups.values() for r in rels if matches[r.key].entry is None]
     for r in loose + unsettled:
-        scores = sorted(((scorer.score(r, i), i) for i in free), reverse=True)
+        scores = sorted(((scorer.score(r, i), i) for i in range(len(entries))), reverse=True)
         best, second = (scores[0][0], scores[1][0]) if len(scores) > 1 else ((scores[0][0], 0.0) if scores else (0.0, 0.0))
         if scores and best >= FALLBACK_MIN and best - second >= FALLBACK_MARGIN:
             matches[r.key] = Match(scores[0][1], "text", False, best)
             touched.add(scores[0][1])
         else:
-            near = [i for s, i in scores[:MAX_CANDIDATES] if s >= 0.4]
+            near = [i for s, i in scores if i in free and s >= 0.4][:MAX_CANDIDATES]
             if r.key not in matches:
                 matches[r.key] = Match(None, "none", False, best, near)
             elif matches[r.key].candidates:
