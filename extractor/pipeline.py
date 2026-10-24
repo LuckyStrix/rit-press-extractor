@@ -23,6 +23,8 @@ DAY_SURE, REREAD_SURE = 70, 90  # confidence of a list day read in its column, a
 # The "Date" column is read several ways (in grey or not, and with white margins of several
 # widths around it): each reading drops or garbles different days, so they vote.
 DAY_READS = ((False, 0), (True, 0), (True, ocr.CELL_PAD), (False, ocr.CELL_PAD), (True, 2 * ocr.CELL_PAD))
+# Margins (in line heights, above and below) a missed day's cell is read with, one read each.
+CELL_MARGINS = [(above, below) for above in (0, 0.125, 0.25, 0.375, 0.5) for below in (0, 0.2)]
 LINE_SURE, LINE_GAIN = 60, 10  # a list line with a word read below this is read again; kept if surer by this
 
 
@@ -296,21 +298,21 @@ def _padded(page_img: Image.Image, box: tuple[int, int, int, int], pad: int) -> 
 
 
 def _read_day_cell(page_img: Image.Image, cell: tuple[int, int, int, int], days: list[Word]) -> list[Word]:
-    """A row's day the column reads missed, read on its own, in a few crops, since a lone
-    number read by itself comes and goes with the exact crop: from the page edge and from a
-    little left of where the days stand (a punch hole at the edge can garble the first; the
-    second can lose a day typed further left), each as is and a little taller. The surest
-    reading of a possible day is kept."""
-    x0s, pad = [cell[0]], (cell[3] - cell[1]) // 4
+    """A row's day the column reads missed, read on its own. A lone number read by itself
+    comes and goes with the exact crop ("11" read as "1" or not at all a few pixels off), but
+    across crops the right reading is the surest, so a few are read: from the page edge and
+    from a little left of where the days stand (a punch hole at the edge can garble the first;
+    the second can lose a day typed further left), each with margins above and below of up to
+    half a line."""
+    x0s, height = [cell[0]], cell[3] - cell[1]
     if days:
         height = sorted(w.box[3] - w.box[1] for w in days)[len(days) // 2]
         x0s.append(max(cell[0], sorted(w.box[0] for w in days)[len(days) // 2] - DAY_DRIFT * height))
-        pad = height // 4
     _, y0, x1, y1 = cell
     reads = []
     for x0 in dict.fromkeys(x0s):
-        for margin in (0, pad):
-            box = (x0, max(y0 - margin, 0), x1, min(y1 + margin, page_img.height))
+        for above, below in CELL_MARGINS:
+            box = (x0, max(y0 - round(above * height), 0), x1, min(y1 + round(below * height), page_img.height))
             reads += ocr.tesseract_digits(page_img, box, cell=True)
     found = [w for w in reads if w.text.isdigit() and 1 <= int(w.text) <= 31]
     return [max(found, key=lambda w: w.conf)] if found else []
