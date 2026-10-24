@@ -143,3 +143,17 @@ def test_a_short_word_in_common_does_not_back_a_match_by_elimination():
                 release("union", 9, "", "Local 230, Lithographers and Photoengravers, is sponsoring a program")]
     res = match_subjects(releases, entries)
     assert res.matches["soccer"].entry is None and res.matches["union"].entry is None
+
+
+def test_a_days_last_release_and_entry_are_not_paired_when_another_release_names_the_entry():
+    # Sept 10 is left with the golf story and "Lofts Carson"; the Sept 9 release is about him.
+    entries = [entry(9, "Photographic Society of America"), entry(9, "Annual Women's Tea"),
+               entry(10, "Lofts Carson"), entry(10, "Apprentice program -- Lithographers & photo-"),
+               entry(10, "Gulf Oil grant")]
+    releases = [release("carson", 9, "", "Loftus C. Carson, Monroe County Human Relations Commission director"),
+                release("tea", 9, "", "The annual fall tea for new women faculty members"),
+                release("memo", 10, "", "Memo to editors: the release on the apprentice program of the Lithographers"),
+                release("golf", 10, "", "For the second straight year Alan Dirk has been named captain of the golf team"),
+                release("gulf", 10, "", "Gulf Oil Corporation has given a capital grant of $15,000")]
+    m = match_subjects(releases, entries).matches
+    assert m["carson"].entry == 2 and m["golf"].entry is None

@@ -228,7 +228,8 @@ def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", 
         cells = missing_day_cells(with_days(lines, days, box), box)
         show("cells re-read", cells)
         for cell in cells:
-            days += _read_day_cell(page_img, cell, days)
+            # Cells of neighbouring rows overlap: a day already found, read again, is not another.
+            days += [w for w in _read_day_cell(page_img, cell, days) if not any(_same_spot(w, d) for d in days)]
         lines = with_days(lines, days, box)
     return lines
 
@@ -280,6 +281,13 @@ def _reread_line(page_img: Image.Image, line: Line, lang: str, best: bool) -> Li
     if found and mean(found.words) >= mean(span) + LINE_GAIN:
         return Line(line.words[:first] + found.words + line.words[last + 1:])
     return line
+
+
+def _same_spot(a: Word, b: Word) -> bool:
+    """Do two readings overlap, across and over more than half the shorter one's height?"""
+    across = min(a.box[2], b.box[2]) > max(a.box[0], b.box[0])
+    down = min(a.box[3], b.box[3]) - max(a.box[1], b.box[1])
+    return across and down > 0.5 * min(a.box[3] - a.box[1], b.box[3] - b.box[1])
 
 
 def _padded(page_img: Image.Image, box: tuple[int, int, int, int], pad: int) -> tuple[int, int, int, int]:

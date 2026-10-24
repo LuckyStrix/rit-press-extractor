@@ -449,3 +449,9 @@ def test_a_missed_day_is_read_in_a_few_crops_and_the_surest_kept(monkeypatch):
 
     monkeypatch.setattr(ocr, "tesseract_digits", read)
     assert [w.text for w in pipeline._read_day_cell(page, (0, 1555, 548, 1612), days)] == ["11"]
+
+
+def test_a_day_read_again_from_the_next_rows_cell_is_the_same_day():
+    from extractor.pipeline import _same_spot
+    eleven, one = Word("11", 96.0, (420, 1560, 460, 1600)), Word("1", 0.0, (440, 1575, 460, 1600))
+    assert _same_spot(eleven, one) and not _same_spot(eleven, Word("15", 90.0, (420, 1690, 460, 1730)))

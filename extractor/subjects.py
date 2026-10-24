@@ -229,8 +229,8 @@ def _match_day(rels: list[Release], idxs: list[int], scorer: _Scorer, matches: d
         s = float(sub[a, b])
         rivals = [sub[a, k] for k in range(len(rest_c)) if k != b] + [sub[k, b] for k in range(len(rest_r)) if k != a]
         margin = s - max(rivals, default=0.0)
-        if len(rest_r) == 1 and len(rest_c) == 1:
-            matches[key] = Match(idxs[rest_c[0]], "date+text" if s >= MIN_TEXT_SCORE else "date", s >= MIN_TEXT_SCORE, s)
+        if len(rest_r) == 1 and len(rest_c) == 1 and s >= MIN_TEXT_SCORE:
+            matches[key] = Match(idxs[rest_c[0]], "date+text", True, s)
             settled.add(idxs[rest_c[0]])
         elif s >= MIN_TEXT_SCORE and margin >= MIN_MARGIN:
             matches[key] = Match(idxs[rest_c[b]], "date+text", True, s)
