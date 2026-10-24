@@ -144,7 +144,7 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
             matches[r.key] = Match(scores[0][1], "text", False, best)
             touched.add(scores[0][1])
         elif shared and shared[0][1] not in free and shared[0][0] >= FALLBACK_MIN \
-                and shared[0][0] - (shared[1][0] if len(shared) > 1 else 0.0) >= FALLBACK_MARGIN:
+                and shared[0][0] - (shared[1][0] if len(shared) > 1 else 0.0) >= _shared_margin(r, entries[shared[0][1]]):
             matches[r.key] = Match(shared[0][1], "text", False, shared[0][0])
         else:
             near = [i for s, i in scores[:MAX_CANDIDATES] if s >= 0.4]
@@ -162,6 +162,13 @@ def match_subjects(releases: list[Release], entries: list[ListEntry]) -> MatchRe
             m.candidates, m.entry, m.method = [m.entry], None, "none"
     _eliminate(releases, entries, scorer, matches, touched)
     return MatchResult(matches, [i for i in range(len(entries)) if i not in touched])
+
+
+def _shared_margin(r: Release, e: ListEntry) -> float:
+    """How far an entry already given to another release must lead the rest for this release to
+    share it: by the usual margin if it is listed within a day of the release, else by more."""
+    near = r.date and e.date and abs((e.date - r.date).days) <= 1
+    return MIN_MARGIN if near else FALLBACK_MARGIN
 
 
 def _eliminate(releases: list[Release], entries: list[ListEntry], scorer: _Scorer, matches: dict,
