@@ -413,3 +413,25 @@ def test_without_the_date_heading_a_garbled_row_does_not_cut_off_the_days():
     rows += [(410, 1460, "#514 Photographic symposium"), (610, 1520, "Nancy Belfer exhibit")]
     box = day_column(layout_page(rows))
     assert box is not None and 470 < box[2] < 610
+
+
+def test_only_the_unsure_words_of_a_list_line_are_read_again_cropped_to_one_line(monkeypatch):
+    # Tesseract 5.5 merged a typed subject with the note written under it into one tall line of
+    # nonsense; the notes on the right were read fine and must stay as they are.
+    from PIL import Image
+
+    from extractor import ocr, pipeline
+    page = Image.new("L", (2600, 2000), 255)
+    garbled = [Word("Aperentic=", 0.0, (649, 1364, 900, 1434)), Word("Times", 21.0, (1113, 1362, 1250, 1436))]
+    notes = [Word("code", 74.0, (1771, 1390, 1880, 1423)), Word("2,", 97.0, (1905, 1390, 1950, 1429)),
+             Word("Horton", 96.0, (1978, 1392, 2150, 1429))]
+    clean = Line([Word("Apprentice", 70.0, (649, 1362, 900, 1400)), Word("program", 72.0, (920, 1362, 1100, 1400))])
+
+    def read(img, box, lang, best=False):
+        if box[2] > 1700:  # the whole line: no better
+            return Line([Word("Aperentics", 40.0, box)])
+        return clean if box[3] - box[1] <= 1.3 * 37 + 2 * (37 // 3) else Line([Word("Litho", 28.0, box)])
+
+    monkeypatch.setattr(ocr, "tesseract_line", read)
+    out = pipeline._reread_line(page, Line(garbled + notes), "eng", False)
+    assert out.text == "Apprentice program code 2, Horton"

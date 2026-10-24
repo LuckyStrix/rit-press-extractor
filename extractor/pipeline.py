@@ -256,18 +256,35 @@ def _reread_day(page_img: Image.Image, column: tuple[int, int, int, int], day: W
 
 
 def _reread_line(page_img: Image.Image, line: Line, lang: str, best: bool) -> Line:
-    """A list line with a word the page read was unsure of, read again on its own; the new
-    reading is kept only if Tesseract is clearly surer of it as a whole."""
+    """A list line with a word the page read was unsure of, read again on its own; a new
+    reading is kept only if Tesseract is clearly surer of it. First the whole line; failing
+    that, just its unsure words, also cropped to one line of text from the top, since a
+    handwritten note under a typed line can garble both into one tall line of nonsense."""
     if min(w.conf for w in line.words) >= LINE_SURE:
         return line
-    x0, y0, x1, y1 = line.box
-    pad = (y1 - y0) // 3
-    box = (max(x0 - pad, 0), max(y0 - pad, 0), min(x1 + pad, page_img.width), min(y1 + pad, page_img.height))
-    again = ocr.tesseract_line(page_img, box, lang, best)
-    if not again.words:
-        return line
-    mean = lambda ln: sum(w.conf for w in ln.words) / len(ln.words)
-    return again if mean(again) >= mean(line) + LINE_GAIN else line
+    mean = lambda words: sum(w.conf for w in words) / len(words)
+    again = ocr.tesseract_line(page_img, _padded(page_img, line.box, (line.box[3] - line.box[1]) // 3), lang, best)
+    if again.words and mean(again.words) >= mean(line.words) + LINE_GAIN:
+        return again
+    unsure = [i for i, w in enumerate(line.words) if w.conf < LINE_SURE]
+    first, last = unsure[0], unsure[-1]
+    span = line.words[first:last + 1]
+    sure = [w for w in line.words if w.conf >= LINE_SURE] or line.words
+    height = sorted(w.box[3] - w.box[1] for w in sure)[len(sure) // 2]
+    x0, x1 = span[0].box[0], span[-1].box[2]
+    y0, y1 = min(w.box[1] for w in span), max(w.box[3] for w in span)
+    boxes = [(x0, y0, x1, y1)] + ([(x0, y0, x1, y0 + round(1.3 * height))] if y1 - y0 > 1.6 * height else [])
+    reads = [ocr.tesseract_line(page_img, _padded(page_img, box, pad), lang, best)
+             for box in boxes for pad in (0, height // 3)]
+    found = max((r for r in reads if r.words), key=lambda r: mean(r.words), default=None)
+    if found and mean(found.words) >= mean(span) + LINE_GAIN:
+        return Line(line.words[:first] + found.words + line.words[last + 1:])
+    return line
+
+
+def _padded(page_img: Image.Image, box: tuple[int, int, int, int], pad: int) -> tuple[int, int, int, int]:
+    x0, y0, x1, y1 = box
+    return max(x0 - pad, 0), max(y0 - pad, 0), min(x1 + pad, page_img.width), min(y1 + pad, page_img.height)
 
 
 def _read_day_cell(page_img: Image.Image, cell: tuple[int, int, int, int], days: list[Word]) -> list[Word]:
