@@ -16,6 +16,7 @@ from .pipeline import PageResult, Row
 from .subjects import Match, Release, match_subjects
 
 SUBJECT_MIN_CONF = 85.0  # Tesseract's floor for the words of a subject read as "verified"
+TYPO_MIN_LEN, TYPO_MAX_OFF = 5, 2  # a subject word this long, this many letters off a release word
 
 
 @dataclass
@@ -61,6 +62,25 @@ def _subject_doubts(entry: ListEntry, release: Release) -> list[str]:
             if word_key(w) and not all(k in seen for k in word_parts(w)) and (conf < SUBJECT_MIN_CONF or also is False)]
 
 
+def _subject_typos(entry: ListEntry, release: Release) -> list[tuple[str, str]]:
+    """Subject words the release's own text spells a letter or two differently ("entollment" on
+    the list, "enrollment" in the release). Every engine can read such a word the same, because it
+    is typed that way (or struck over), so only the release can show it; either copy may be the
+    misspelled or misread one. Words of different length (plurals) are left alone."""
+    seen = {k for w in release.slug.split() + release.text.split() for k in word_parts(w)}
+    typos = []
+    for w in entry.subject.split():
+        for k in word_parts(w):
+            near = [s for s in sorted(seen) if k not in seen and _letters_off(k, s)]
+            if near:
+                typos.append((w, near[0]))
+    return typos
+
+
+def _letters_off(a: str, b: str) -> bool:
+    return len(a) == len(b) >= TYPO_MIN_LEN and 0 < sum(x != y for x, y in zip(a, b)) <= TYPO_MAX_OFF
+
+
 def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Release) -> None:
     row.subject_match = match.method
     if match.entry is None:
@@ -76,7 +96,8 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         row.subject, row.subject_verified, row.subject_match = row.first_five_words, row.words_verified, "shared"
         return
     row.subject = entry.subject
-    doubts = _subject_doubts(entry, release)
+    typos = _subject_typos(entry, release)
+    doubts = [w for w in _subject_doubts(entry, release) if w not in {t for t, _ in typos}]
     if match.duplicate:
         _add_reasons(row, "another release in the folder reads the same and has the same subject; "
                           "check for a duplicate copy")
@@ -87,9 +108,13 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         _add_reasons(row, "subject matched by its text only" + (
             "" if listed == row.release_date else f"; its list entry is dated {listed}" if listed and row.release_date
             else "; no list entry carries this release's date"))
-    elif doubts:
-        _add_reasons(row, f"subject may be misread ({', '.join(repr(w) for w in doubts)}); check its spelling")
-    row.subject_verified = "YES" if match.confident and not doubts else "NO"
+    else:
+        if doubts:
+            _add_reasons(row, f"subject may be misread ({', '.join(repr(w) for w in doubts)}); check its spelling")
+        if typos:
+            _add_reasons(row, "subject may have a typo (" + ", ".join(f"list {w!r}, release {r!r}" for w, r in typos)
+                         + "); check which spelling is right")
+    row.subject_verified = "YES" if match.confident and not doubts and not typos else "NO"
 
 
 def _leading_lists(pages: list[PageIn]) -> list[PageIn]:

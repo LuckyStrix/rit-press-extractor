@@ -205,3 +205,18 @@ def test_list_page_after_a_release_in_the_same_scan_is_read_as_a_release():
     out = assemble_folder("f", [lead, release_page("scan.pdf", 2), mistaken])
     assert out.list_pages == [("scan.pdf", 1)]
     assert [(r.file, r.page) for r in out.rows] == [("scan.pdf", 2), ("scan.pdf", 3)]
+
+
+def test_a_subject_word_spelled_a_letter_off_in_the_release_is_flagged_as_a_typo():
+    """Typed (or struck over) on the list: every engine reads 'entollment', so only the release shows it."""
+    page = _second_read(list_page("Nov. 2, 1970 Fall semester entollment"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Fall semester enrollment in the college rose")])
+    r = out.rows[0]
+    assert r.subject == "Fall semester entollment" and r.subject_verified == "NO"
+    assert "subject may have a typo (list 'entollment', release 'enrollment')" in r.review_reasons
+
+
+def test_a_plural_in_the_release_is_not_a_typo():
+    page = _second_read(list_page("Nov. 2, 1970 Professional photographer award"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Professional photographers gave an award")])
+    assert out.rows[0].subject_verified == "YES"
