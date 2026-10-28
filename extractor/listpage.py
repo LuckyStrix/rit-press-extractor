@@ -52,7 +52,8 @@ class ListEntry:
     page: int  # index of the list page within the folder's list pages
     line: int
     flags: list[str] = field(default_factory=list)
-    word_confs: list[tuple[str, float]] = field(default_factory=list)  # each subject word and its confidence
+    # each subject word, its confidence, and whether a second engine read it the same (None: not checked)
+    word_confs: list[tuple[str, float, bool | None]] = field(default_factory=list)
 
 
 @dataclass
@@ -387,11 +388,34 @@ class _Row:
     flags: list[str]
     page: int
     line: int
-    word_confs: list[tuple[str, float]] = field(default_factory=list)
+    word_confs: list[tuple[str, float, bool | None]] = field(default_factory=list)
 
 
-def _confs(words: list[Word]) -> list[tuple[str, float]]:
-    return [(w.text, w.conf) for w in words]
+def _confs(words: list[Word]) -> list[tuple[str, float, bool | None]]:
+    return [(w.text, w.conf, w.also) for w in words]
+
+
+def word_key(word: str) -> str:
+    return re.sub(r"[\W_]", "", word.lower())
+
+
+def word_parts(word: str) -> list[str]:
+    """A word's keys, part by part where a dash or slash joins two ("reception-Ellingson")."""
+    return [k for p in re.split(r"[-–—/]+", word) if (k := word_key(p))]
+
+
+def confirm_words(lines: list[Line], others: list[list[Line]]) -> None:
+    """Mark each word of a list page with whether another engine read the same word on the same
+    line. A subject is read by Tesseract alone, which can be sure of a misreading ("Businless");
+    a second engine reading the same letters is its check. Engines split lines and words
+    differently, so the other reading is matched by the line's height on the page, word by word."""
+    other_words = [w for read in others for ln in read for w in ln.words]
+    for ln in lines:
+        y0, y1 = ln.box[1], ln.box[3]
+        keys = {k for w in other_words if y0 <= (w.box[1] + w.box[3]) / 2 <= y1
+                for part in w.text.split() for k in word_parts(part)}
+        for w in ln.words:
+            w.also = all(k in keys for k in word_parts(w.text))
 
 
 def _month_of(token: str, month: str | None) -> str | None:

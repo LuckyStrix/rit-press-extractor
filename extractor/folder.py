@@ -7,11 +7,10 @@ Anything not settled by clear evidence is flagged, never guessed.
 from __future__ import annotations
 
 import datetime as dt
-import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
 
-from .listpage import ListEntry, parse_list_pages
+from .listpage import ListEntry, parse_list_pages, word_key, word_parts
 from .pages import group_pages
 from .pipeline import PageResult, Row
 from .subjects import Match, Release, match_subjects
@@ -49,20 +48,17 @@ def _candidates(entries: list[ListEntry], idxs: list[int]) -> str:
     return "; ".join(f"'{entries[i].subject}'" for i in idxs)
 
 
-def _key(word: str) -> str:
-    return re.sub(r"[\W_]", "", word.lower())
-
-
-def _subject_sure(entry: ListEntry, release: Release) -> bool:
-    """Is every word of the subject either read surely on the list, or found in the release's
-    own text (its slug and opening words)? A word the list page read weakly but the release
-    spells the same has been read twice, independently. Words joined by a dash on the list
+def _subject_doubts(entry: ListEntry, release: Release) -> list[str]:
+    """The subject's words that may be misread. A word is sure when the release's own text (its
+    slug and opening words) spells it the same: it has then been read twice, independently.
+    Otherwise Tesseract must have read it surely on the list, and, where other engines read the
+    page too, one of them must have read the same letters. Words joined by a dash on the list
     ("reception-Ellingson") are found part by part."""
-    seen = {_key(w) for w in re.split(r"[\s\-–—/]+", f"{release.slug} {release.text}")}
     if not entry.word_confs:
-        return entry.min_conf >= SUBJECT_MIN_CONF
-    return all(c >= SUBJECT_MIN_CONF or all(not _key(p) or _key(p) in seen for p in re.split(r"[\-–—/]+", w))
-               for w, c in entry.word_confs)
+        return [] if entry.min_conf >= SUBJECT_MIN_CONF else [entry.subject]
+    seen = {k for w in release.slug.split() + release.text.split() for k in word_parts(w)}
+    return [w for w, conf, also in entry.word_confs
+            if word_key(w) and not all(k in seen for k in word_parts(w)) and (conf < SUBJECT_MIN_CONF or also is False)]
 
 
 def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Release) -> None:
@@ -80,7 +76,7 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         row.subject, row.subject_verified, row.subject_match = row.first_five_words, row.words_verified, "shared"
         return
     row.subject = entry.subject
-    sure = _subject_sure(entry, release)
+    doubts = _subject_doubts(entry, release)
     if match.duplicate:
         _add_reasons(row, "another release in the folder reads the same and has the same subject; "
                           "check for a duplicate copy")
@@ -91,9 +87,9 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         _add_reasons(row, "subject matched by its text only" + (
             "" if listed == row.release_date else f"; its list entry is dated {listed}" if listed and row.release_date
             else "; no list entry carries this release's date"))
-    elif not sure:
-        _add_reasons(row, "subject text was read with low confidence; check its spelling")
-    row.subject_verified = "YES" if match.confident and sure else "NO"
+    elif doubts:
+        _add_reasons(row, f"subject may be misread ({', '.join(repr(w) for w in doubts)}); check its spelling")
+    row.subject_verified = "YES" if match.confident and not doubts else "NO"
 
 
 def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:

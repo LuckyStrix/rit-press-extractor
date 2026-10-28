@@ -480,3 +480,15 @@ def test_tesseract_doubt_counts_for_less_when_all_three_engines_read_the_same():
     assert reasons(85, ["tesseract", "easyocr", "doctr"]) == []
     assert reasons(85, ["tesseract", "easyocr"]) == ["tesseract confidence 85 < 90 on 'Kazmierski'"]
     assert reasons(75, ["tesseract", "easyocr", "doctr"]) == ["tesseract confidence 75 < 80 on 'Kazmierski'"]
+
+
+def test_the_layout_model_disagreeing_on_the_article_start_doubts_the_words_not_the_date():
+    from extractor.extract import read_fields
+    from extractor.layout import DISAGREE_FLAG, BodyStart
+
+    lines = layout_page([(100, 100, "FOR IMMEDIATE RELEASE"), (100, 140, "November 2, 1970"),
+                         (160, 300, "Mr. John M. Ward, 240 Owego St., Candor, N.Y., has joined the staff"),
+                         (100, 350, "of the Union Central Life Insurance Company, Rochester, as a student.")])
+    reading = read_fields("tesseract", lines, "en", start=BodyStart(2, 0, None, [DISAGREE_FLAG]))
+    assert reading.date.iso == "1970-11-02" and reading.date_flags == []
+    assert DISAGREE_FLAG in reading.word_flags

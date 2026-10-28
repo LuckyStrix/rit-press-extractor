@@ -10,7 +10,7 @@ from . import ocr
 from .layout import HEADER_CUE, body_words, choose_body_start, find_slug
 from .models import Line, Word
 from .pages import HEAD, PageSignals, has_release_header, page_signals
-from .listpage import (DAY_DRIFT, bare_day_column, day_column, days_in_order, has_month_line, header_band,
+from .listpage import (DAY_DRIFT, bare_day_column, confirm_words, day_column, days_in_order, has_month_line, header_band,
                        is_list_page, missing_day_cells, vote_days, with_days, with_month_line)
 from .regions import find_regions, layout_available
 from .reread import regions_from, reread, reread_trocr
@@ -148,7 +148,7 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     if lines is None:
         lines = ocr.tesseract_lines(page_img, tess_lang, best=best)
     if detect_list and (is_list_page(lines) or (bare := _bare_list(page_img, lines))):
-        lines = read_list_page(page_img, lines, tess_lang, best, box=bare)
+        lines = read_list_page(page_img, lines, tess_lang, best, box=bare, engines=opts.engines)
         return PageResult(None, page_signals(lines), list_lines=lines)
     lines = _sparse_header(page_img, lines, tess_lang, best)
     signals = page_signals(lines)
@@ -227,10 +227,11 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
 
 def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", best: bool = False,
                    show: Callable[[str, object], None] = lambda step, value: None,
-                   box: tuple[int, int, int, int] | None = None) -> list[Line]:
+                   box: tuple[int, int, int, int] | None = None, engines: tuple[str, ...] = ()) -> list[Line]:
     """A list page's lines with what the page read lost put back: unsure lines read again, the
-    MONTH line, and the days of a "Date" column (box, if already known). show(step, value) sees
-    each step (debug)."""
+    MONTH line, and the days of a "Date" column (box, if already known). Each word is then
+    checked against the other engines' reading of the page (engines: those voting). show(step,
+    value) sees each step (debug)."""
     lines = [_reread_line(page_img, ln, lang, best) for ln in lines]
     if not has_month_line(lines) and (band := header_band(lines)):  # sparse mode keeps it apart from its dotted rule
         lines = with_month_line(lines, ocr.tesseract_lines(page_img.crop(band), lang, psm=11, best=best))
@@ -247,7 +248,22 @@ def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", 
         for cell in cells:
             days += _read_day_cell(page_img, cell, days)
         lines = with_days(lines, days, box)
+    if others := _other_readings(page_img, lang, engines):
+        confirm_words(lines, others)
     return lines
+
+
+def _other_readings(page_img: Image.Image, lang: str, engines: tuple[str, ...]) -> list[list[Line]]:
+    """The page as the other voting engines read it (none that is not installed)."""
+    others = []
+    if "doctr" in engines and ocr.doctr_available():
+        others.append(ocr.doctr_lines(page_img))
+    if "easyocr" in engines and (langs := ocr.easy_langs_for(lang)):
+        try:
+            others.append(ocr.easyocr_lines(page_img, langs))
+        except FileNotFoundError:
+            pass  # the model is not downloaded; the page read already says so
+    return others
 
 
 def _bare_list(page_img: Image.Image, lines: list[Line]) -> tuple[int, int, int, int] | None:

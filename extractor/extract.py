@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from .dates import DateFound, pick_release_date
-from .layout import POSITION_ONLY_FLAG, BodyStart, BodyWord, align_body_start, body_words, find_body_start
+from .layout import DISAGREE_FLAG, POSITION_ONLY_FLAG, BodyStart, BodyWord, align_body_start, body_words, find_body_start
 from .models import Line
 from .words import capitalize_first, strip_leading_articles
 
@@ -42,7 +42,10 @@ def read_fields(engine: str, lines: list[Line], lang: str | None,
     # Where the body starts also decides what counts as header, so Tesseract's layout doubts hit
     # both fields. A second engine's flags only say how its start was lined up with Tesseract's,
     # which matters for the words; the date is read from the header and cross-checked by the vote.
-    date_flags, word_flags = ([] if anchor else list(start.flags)), list(start.flags)
+    # The layout model and the line rules disagreeing is about which paragraph opens the article,
+    # not about the header above both, so it is the words' doubt alone.
+    date_flags = [] if anchor else [f for f in start.flags if f != DISAGREE_FLAG]
+    word_flags = list(start.flags)
     dateline = None
     if start.dateline is not None:
         dl = lines[start.dateline]

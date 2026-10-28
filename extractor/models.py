@@ -15,6 +15,7 @@ class Word:
     text: str
     conf: float  # 0-100, engine-reported
     box: Box
+    also: bool | None = None  # did a second engine read the same word here? (None: not checked)
 
 
 @dataclass

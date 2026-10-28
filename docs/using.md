@@ -213,7 +213,7 @@ and then.
 | `subject could not be settled; possible: 'A'; 'B'` | several list entries fit this release equally well | pick the right subject from the ones listed |
 | `no subject found in the list page (possible: …)` | no entry fits this release clearly, but the ones listed might | whether one of them is the release's subject |
 | `subject matched by date only` / `by its text only` | only one kind of evidence supports the match | that the subject really belongs to this release |
-| `subject text was read with low confidence` | the list page's text was hard to read | the spelling of the subject |
+| `subject may be misread ('Businless')` | Tesseract was unsure of these words on the list page, or another engine read them differently, and the release doesn't spell them | the spelling of those words |
 | `a page with no header, date or page number was assumed to be a continuation` | a page was joined to the release before it without clear evidence | whether it is really part of that release, or a new one |
 | `the page before ended '-more-' but the next page begins a new release` | the pages don't follow the markers | the page order and grouping |
 | `low-resolution page` | the photo is small or far away | retake it closer if the text is hard to read |

@@ -155,11 +155,42 @@ def test_a_subject_word_read_unsurely_and_not_in_the_release_is_flagged():
                                  release_page("a.pdf", opening="Mrs. Carolyn Rankin has been named to the post")])
     r = out.rows[0]
     assert r.subject_verified == "NO"
-    assert "subject text was read with low confidence" in r.review_reasons
+    assert "subject may be misread ('editor')" in r.review_reasons
 
 
 def test_a_weak_subject_word_joined_by_a_dash_is_found_part_by_part():
     out = assemble_folder("f1", [_weak(list_page("Nov. 2, 1970 Special retirement reception-Ellingson"),
                                        "reception-Ellingson"),
                                  release_page("a.pdf", opening="A special retirement reception honoring Mark Ellingson")])
+    assert out.rows[0].subject_verified == "YES"
+
+
+def _second_read(page: PageIn, misread: dict[str, str]) -> PageIn:
+    """The list page as a second engine read it: the same, but for the words in misread."""
+    from extractor.listpage import confirm_words
+    from extractor.models import Line
+
+    lines = page.result.list_lines
+    other = [Line([Word(misread.get(w.text, w.text), 90, w.box) for w in ln.words]) for ln in lines]
+    confirm_words(lines, [other])
+    return page
+
+
+def test_a_subject_word_another_engine_reads_differently_is_flagged_though_tesseract_was_sure():
+    page = _second_read(list_page("Nov. 2, 1970 Professor promoted to Dean, College of Businless"),
+                        {"Businless": "Business"})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Professor promoted to Dean of the college")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "subject may be misread ('Businless')" in r.review_reasons
+
+
+def test_a_subject_another_engine_reads_the_same_is_verified():
+    page = _second_read(list_page("Nov. 2, 1970 Professor promoted to Dean, College of Business"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Professor promoted to Dean of the college")])
+    assert out.rows[0].subject_verified == "YES"
+
+
+def test_a_word_the_release_spells_the_same_needs_no_second_engine():
+    page = _second_read(list_page("Nov. 2, 1970 Harold Kentner retires"), {"Kentner": "Kantner"})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Harold M. Kentner of 68 Beach Avenue retires")])
     assert out.rows[0].subject_verified == "YES"
