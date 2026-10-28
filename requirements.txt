@@ -12,3 +12,5 @@ python-doctr>=1.1
 transformers>=4.40
 # Layout model (--layout model, the default); model via setup --layout
 onnxruntime>=1.20
+# English word list: a list-page subject word that is no English word is checked by a person
+wordfreq>=3.1

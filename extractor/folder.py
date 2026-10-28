@@ -7,8 +7,10 @@ Anything not settled by clear evidence is flagged, never guessed.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 
 from .listpage import ListEntry, parse_list_pages, word_key, word_parts
 from .pages import group_pages
@@ -17,6 +19,7 @@ from .subjects import Match, Release, match_subjects
 
 SUBJECT_MIN_CONF = 85.0  # Tesseract's floor for the words of a subject read as "verified"
 TYPO_MIN_LEN, TYPO_MAX_OFF = 5, 2  # a subject word this long, this many letters off a release word
+WORD_MIN_LEN = 4  # shorter subject words (initials, abbreviations) are not looked up in the word list
 
 
 @dataclass
@@ -81,6 +84,30 @@ def _subject_typos(entry: ListEntry, release: Release) -> list[tuple[str, str]]:
     return typos
 
 
+def _unknown_words(entry: ListEntry, release: Release) -> list[str]:
+    """Subject words that are no English word and that the release does not name. A typo on the
+    list ("Visttors") or a misreading made the same way in both copies ("alumi") passes every
+    comparison between readers; only a word list shows it. A name is no English word either, but
+    the release writes it with a capital letter, as it does no misread common word ("alumi")."""
+    names = {k for w in " ".join([release.slug, release.text, release.body]).split()
+             if w[:1].isupper() for k in word_parts(w)}
+    unknown = []
+    for w in entry.subject.split():
+        for part in re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", w):
+            k = part.lower().removesuffix("'s")
+            if len(k) >= WORD_MIN_LEN and k.replace("'", "") not in names and not _is_word(k):
+                unknown.append(w)
+                break
+    return unknown
+
+
+@lru_cache(maxsize=None)
+def _is_word(word: str) -> bool:
+    from wordfreq import zipf_frequency
+
+    return zipf_frequency(word, "en") > 0
+
+
 def _letters_off(a: str, b: str) -> bool:
     return len(a) == len(b) >= TYPO_MIN_LEN and 0 < sum(x != y for x, y in zip(a, b)) <= TYPO_MAX_OFF
 
@@ -102,6 +129,7 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
     row.subject = entry.subject
     typos = _subject_typos(entry, release)
     doubts = [w for w in _subject_doubts(entry, release) if w not in {t for t, _ in typos}]
+    unknown = [w for w in _unknown_words(entry, release) if w not in doubts and w not in {t for t, _ in typos}]
     if match.duplicate:
         _add_reasons(row, "another release in the folder reads the same and has the same subject; "
                           "check for a duplicate copy")
@@ -118,7 +146,10 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         if typos:
             _add_reasons(row, "subject may have a typo (" + ", ".join(f"list {w!r}, release {r!r}" for w, r in typos)
                          + "); check which spelling is right")
-    row.subject_verified = "YES" if match.confident and not doubts and not typos else "NO"
+        if unknown:
+            _add_reasons(row, f"subject has words that are not English and not named in the release "
+                              f"({', '.join(repr(w) for w in unknown)}); check their spelling")
+    row.subject_verified = "YES" if match.confident and not doubts and not typos and not unknown else "NO"
 
 
 def _leading_lists(pages: list[PageIn]) -> list[PageIn]:

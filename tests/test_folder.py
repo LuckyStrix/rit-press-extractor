@@ -220,3 +220,25 @@ def test_a_plural_in_the_release_is_not_a_typo():
     page = _second_read(list_page("Nov. 2, 1970 Professional photographer award"), {})
     out = assemble_folder("f1", [page, release_page("a.pdf", opening="Professional photographers gave an award")])
     assert out.rows[0].subject_verified == "YES"
+
+
+def test_a_subject_word_that_is_no_english_word_is_flagged_though_every_reader_agrees():
+    """Typed that way on the list: every engine reads 'Visttors', and the release does not spell it."""
+    page = _second_read(list_page("Nov. 2, 1970 Indonesian Visttors"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Two Indonesian educators arrived on campus")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "not English and not named in the release ('Visttors')" in r.review_reasons
+
+
+def test_a_name_the_release_writes_with_a_capital_is_not_flagged():
+    page = _second_read(list_page("Nov. 2, 1970 Appointment Sidney Barsuk"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Sidney Barsuk has been appointed director")])
+    assert out.rows[0].subject_verified == "YES"
+
+
+def test_a_misreading_made_the_same_way_in_the_release_is_still_flagged():
+    """Both copies misread 'alumni' as 'alumi': a common word, so the release does not capitalise it."""
+    page = _second_read(list_page("Nov. 2, 1970 Alumi golf tournament"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Institute alumi will compete in a golf tournament")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "('Alumi')" in r.review_reasons

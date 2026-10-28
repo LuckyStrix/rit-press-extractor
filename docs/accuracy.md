@@ -93,14 +93,23 @@ its date and by what the release says, and it is marked verified only when:
    shares at least half of its weighted words with the release's tag and opening text, and
    beats every other entry for this release, and every other release for this entry, by a
    clear margin; and
-2. every word of the list's text for that subject was read with Tesseract confidence of
-   at least 85, or is spelled the same in the release's own slug or opening words (read
-   there separately, so a weak read on the list is confirmed by a second one).
+2. every word of the subject is spelled the same somewhere in the release (read there
+   separately, so the two reads confirm each other), or else Tesseract read it with
+   confidence of at least 85 and no second engine (when one runs) read different letters
+   on that line; and
+3. no subject word is a letter or two off a word of the release ("entollment" against
+   "enrollment"); and
+4. every subject word of four or more letters is an English word (from the `wordfreq`
+   list) or a name the release writes with a capital letter.
 
-Anything else is flagged: a match by date only, by text only (no list entry carries the
-release's date), or several equally good candidates (listed in the reasons, with the subject
-left empty). Unlike the date and first five words, the subject text is read by Tesseract
-alone, so check its spelling on flagged rows.
+Rules 3 and 4 catch what agreement between readers can't: typos and struck-over letters
+on the list itself, which every engine reads the same way, and a word misread the same way
+in both copies ("alumi"). Anything else is flagged: a match by date only, by text only (no
+list entry carries the release's date), or several equally good candidates (listed in the
+reasons, with the subject left empty).
+
+"Verified" checks the spelling of the words that were read, not that none are missing: a
+word typed over another (half a line low, say) can drop out of the subject unnoticed.
 
 ### Which page starts a release
 

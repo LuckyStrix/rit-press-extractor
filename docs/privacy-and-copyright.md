@@ -17,8 +17,8 @@
 - **The extracted data is low-risk under copyright** (a fact plus a five-word
   identifier). The photos are full copies of the releases, so make and keep
   them only under your institution's digitization authority.
-- **The tool itself is Apache-2.0,** and all its dependencies are permissive or
-  LGPL, so it can also be run as a service.
+- **The tool itself is Apache-2.0,** and its dependencies are permissive or LGPL
+  (wordfreq's word data is CC-BY-SA), so it can also be run as a service.
 
 ---
 
@@ -172,8 +172,8 @@ license and notice files and mark any files you changed.
 
 ### Third-party components
 
-Every component is under a permissive license or the LGPL. **None restricts
-running the tool as a network service.**
+Every component is under a permissive license or the LGPL, apart from wordfreq's word
+data (CC-BY-SA 4.0, see below). **None restricts running the tool as a network service.**
 
 | Component | License |
 |---|---|
@@ -188,6 +188,11 @@ running the tool as a network service.**
 | pillow-heif (reads iPhone HEIC photos) | BSD-3-Clause; bundles libheif and libde265 (LGPL-3.0) |
 | python-bidi (used by EasyOCR) | LGPL-3.0 |
 | transformers / TrOCR model (optional) | Apache-2.0 / MIT |
+| wordfreq (English word list for checking subjects) | Apache-2.0; its word data is CC-BY-SA 4.0 |
+
+**About wordfreq's word data:** the tool only looks words up in the list as pip installs
+it; it doesn't copy or change the data. CC-BY-SA asks anyone who redistributes the data to
+credit it (the package's own files do) and to share changes under the same license.
 
 **About the LGPL parts:**
 - The LGPL has no network-service clause, and it doesn't extend to code that
