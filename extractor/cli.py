@@ -52,6 +52,13 @@ def cmd_setup(args) -> int:
         download()
         if not MODEL_FILE.exists():
             raise SystemExit("The layout model did not download; re-run setup --layout")
+    if args.ppocr:
+        from .ppocr import MODEL_FILE as PPOCR_FILE, PPOCR_REPO, download as ppocr_download
+
+        print(f"Fetching PP-OCR recognizer {PPOCR_REPO} ...")
+        ppocr_download()
+        if not PPOCR_FILE.exists():
+            raise SystemExit("The PP-OCR model did not download; re-run setup --ppocr")
     if args.tess_best:
         import urllib.request
 
@@ -81,11 +88,11 @@ def _init_worker(jobs: int) -> None:
     if jobs > 1:  # share the cores out instead of every worker grabbing all of them
         import torch
 
-        from . import regions
+        from . import ppocr, regions
 
         os.environ["OMP_THREAD_LIMIT"] = "1"  # Tesseract
         torch.set_num_threads(max(1, (os.cpu_count() or 1) // jobs))
-        regions.threads = max(1, (os.cpu_count() or 1) // jobs)
+        regions.threads = ppocr.threads = max(1, (os.cpu_count() or 1) // jobs)
 
 
 def _threads_suffice(opts) -> bool:
@@ -436,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--doctr", action="store_true", help="also fetch docTR models for --engines ...,doctr")
     s.add_argument("--trocr", action="store_true", help="also fetch the TrOCR model for --engines ...,trocr")
     s.add_argument("--layout", action="store_true", help="also fetch the layout model for --layout model")
+    s.add_argument("--ppocr", action="store_true", help="also fetch the PP-OCR recognizer for --engines ...,ppocr")
     s.add_argument("--tess-best", nargs="*", metavar="LANG",
                    help="also fetch Tesseract 'best' models (default: eng) for --best-model")
     s.set_defaults(func=cmd_setup)
@@ -446,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="crop and re-read fields: 'tiebreak' (default) = EasyOCR re-reads only where the "
                             "engines disagree; 'easyocr' = always; 'all' = both engines; 'off'")
         g.add_argument("--engines", default="tesseract,easyocr,doctr",
-                       help="voting engines, comma-separated: tesseract (always first), easyocr, doctr, trocr")
+                       help="voting engines, comma-separated: tesseract (always first), easyocr, doctr, ppocr, trocr")
         g.add_argument("--layout", choices=["model", "rules"], default="model",
                        help="where the article starts: 'model' (default) = a layout model's blocks, checked "
                             "against the line layout; 'rules' = the line layout alone")

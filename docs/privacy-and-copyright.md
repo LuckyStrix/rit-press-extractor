@@ -47,6 +47,7 @@ than send anything.
 | EasyOCR models | EasyOCR's GitHub releases (JaidedAI) |
 | docTR models (`--doctr`) | docTR's GitHub releases (Mindee) |
 | Layout model (`--layout`) | Hugging Face (`PaddlePaddle/PP-DocLayout_plus-L_onnx`) |
+| PP-OCR line recognizer (`--ppocr`, optional) | Hugging Face (`PaddlePaddle/latin_PP-OCRv5_mobile_rec_onnx`) |
 | Tesseract "best" model (`--tess-best`, optional) | `github.com/tesseract-ocr/tessdata_best` |
 | TrOCR model (`--trocr`, optional) | Hugging Face (`microsoft/trocr-base-printed`) |
 
@@ -181,6 +182,7 @@ data (CC-BY-SA 4.0, see below). **None restricts running the tool as a network s
 | EasyOCR and its models | Apache-2.0 |
 | docTR (python-doctr) and its models | Apache-2.0 |
 | PP-DocLayout_plus-L layout model (PaddlePaddle) / ONNX Runtime | Apache-2.0 / MIT |
+| latin_PP-OCRv5_mobile_rec line recognizer (PaddlePaddle, optional) | Apache-2.0 |
 | PyTorch / torchvision | BSD-style and Apache-2.0 (mixed permissive) |
 | OpenCV | Apache-2.0 |
 | pypdfium2 / PDFium (reads PDFs) | Apache-2.0 / BSD-3-Clause |

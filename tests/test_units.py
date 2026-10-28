@@ -482,6 +482,16 @@ def test_tesseract_doubt_counts_for_less_when_all_three_engines_read_the_same():
     assert reasons(75, ["tesseract", "easyocr", "doctr"]) == ["tesseract confidence 75 < 80 on 'Kazmierski'"]
 
 
+def test_tesseract_doubt_counts_in_full_when_any_engine_reads_otherwise():
+    """Three of four engines agreeing still verifies, but Tesseract's own doubt then stands."""
+    def words(c, name="Kazmierski"):
+        return [BodyWord("Paul", 95), BodyWord(name, c), BodyWord("former", 95)]
+
+    readings = [EngineReading("tesseract", None, words(85)), EngineReading("easyocr", None, words(95)),
+                EngineReading("doctr", None, words(95)), EngineReading("ppocr", None, words(95, "Kazmierskl"))]
+    assert reconcile_words(readings).reasons == ["tesseract confidence 85 < 90 on 'Kazmierski'"]
+
+
 def test_the_layout_model_disagreeing_on_the_article_start_doubts_the_words_not_the_date():
     from extractor.extract import read_fields
     from extractor.layout import DISAGREE_FLAG, BodyStart

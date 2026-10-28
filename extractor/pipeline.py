@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, replace
 
 from PIL import Image
 
-from . import ocr
+from . import ocr, ppocr
 from .layout import HEADER_CUE, body_words, choose_body_start, find_slug
 from .models import Line, Word
 from .pages import HEAD, PageSignals, has_release_header, page_signals
@@ -190,6 +190,8 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
 
     if "doctr" in opts.engines and ocr.doctr_available():
         readings.append(read_fields("doctr", ocr.doctr_lines(page_img), lang, readings[0].anchor))
+    if "ppocr" in opts.engines and tess_lang in ppocr.LATIN and ppocr.ppocr_available():
+        readings.append(read_fields("ppocr", ppocr.ppocr_lines(page_img, lines), lang, readings[0].anchor))
     if "trocr" in opts.engines and readings[0].start is not None:
         rr = reread_trocr(page_img, regions_from(lines, readings[0]), lang)
         readings.append(EngineReading("trocr", rr.date, rr.words or [],
@@ -255,14 +257,16 @@ def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", 
         for cell in cells:
             days += _read_day_cell(page_img, cell, days)
         lines = with_days(lines, days, box)
-    if others := _other_readings(page_img, lang, engines):
+    if others := _other_readings(page_img, lines, lang, engines):
         confirm_words(lines, others)
     return lines
 
 
-def _other_readings(page_img: Image.Image, lang: str, engines: tuple[str, ...]) -> list[list[Line]]:
+def _other_readings(page_img: Image.Image, lines: list[Line], lang: str, engines: tuple[str, ...]) -> list[list[Line]]:
     """The page as the other voting engines read it (none that is not installed)."""
     others = []
+    if "ppocr" in engines and lang in ppocr.LATIN and ppocr.ppocr_available():
+        others.append(ppocr.ppocr_lines(page_img, lines))
     if "doctr" in engines and ocr.doctr_available():
         others.append(ocr.doctr_lines(page_img))
     if "easyocr" in engines and (langs := ocr.easy_langs_for(lang)):
