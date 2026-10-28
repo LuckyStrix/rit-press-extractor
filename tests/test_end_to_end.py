@@ -94,7 +94,8 @@ def test_folder_with_list_page_and_two_page_release(tmp_path):
     assert a["page_count"] == "2" and a["pages"] == "0001.png p1, 0002.png p1"
     assert (a["subject"], a["subject_match"]) == ("TVR Transportation", "date+text")
     assert b["subject"] == "Susan Wolf - Co-op" and b["release_date"] == "1970-11-02"
-    assert c["subject"] == "" and c["needs_review"] == "YES" and "no subject found" in c["review_reasons"]
+    # No list entry fits the sports release, and none is in doubt: not flagged for it.
+    assert c["subject"] == "" and c["subject_match"] == "none" and "no subject found" not in c["review_reasons"]
     unmatched = list(csv.DictReader(open(tmp_path / "r_unmatched_subjects.csv", newline="")))
     assert [u["subject"] for u in unmatched] == ["Football schedule"]
 
