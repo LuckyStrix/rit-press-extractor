@@ -92,7 +92,22 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
     row.subject_verified = "YES" if match.confident and not doubts else "NO"
 
 
+def _leading_lists(pages: list[PageIn]) -> list[PageIn]:
+    """List pages come before the releases in a scan, never among them: a page taken for a list
+    after a release of the same file is read as the release it is."""
+    after_release: set[str] = set()
+    kept = []
+    for p in pages:
+        if p.result.list_lines is not None and p.file in after_release and p.result.as_release is not None:
+            p = replace(p, result=p.result.as_release)
+        if p.result.list_lines is None:
+            after_release.add(p.file)
+        kept.append(p)
+    return kept
+
+
 def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
+    pages = _leading_lists(pages)
     list_pages = [p for p in pages if p.result.list_lines is not None]
     release_pages = [p for p in pages if p.result.list_lines is None and p.result.row is not None]
     groups = group_pages([p.result.signals for p in release_pages])

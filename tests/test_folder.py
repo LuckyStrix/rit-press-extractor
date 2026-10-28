@@ -194,3 +194,14 @@ def test_a_word_the_release_spells_the_same_needs_no_second_engine():
     page = _second_read(list_page("Nov. 2, 1970 Harold Kentner retires"), {"Kentner": "Kantner"})
     out = assemble_folder("f1", [page, release_page("a.pdf", opening="Harold M. Kentner of 68 Beach Avenue retires")])
     assert out.rows[0].subject_verified == "YES"
+
+
+def test_list_page_after_a_release_in_the_same_scan_is_read_as_a_release():
+    """List pages lead a scan; one found among the releases (box 2 folder 5 p128) is a release."""
+    lead = list_page("11/2 TVR Transportation")
+    lead = PageIn("scan.pdf", 1, "", lead.result)
+    mistaken = PageIn("scan.pdf", 3, "", PageResult(None, PageSignals(), list_lines=lead.result.list_lines,
+                                                    as_release=release_page("scan.pdf", 3, "1970-11-03").result))
+    out = assemble_folder("f", [lead, release_page("scan.pdf", 2), mistaken])
+    assert out.list_pages == [("scan.pdf", 1)]
+    assert [(r.file, r.page) for r in out.rows] == [("scan.pdf", 2), ("scan.pdf", 3)]

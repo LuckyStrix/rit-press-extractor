@@ -87,6 +87,9 @@ class PageResult:
     slug: str = ""
     opening: str = ""
     list_lines: list[Line] | None = None
+    # A list page's reading as a release, kept for a list page past the first page of its file:
+    # list pages only ever lead a scan, so the folder pass uses this if a release comes before it.
+    as_release: PageResult | None = None
 
 
 def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
@@ -97,6 +100,9 @@ def process_page(img: Image.Image, file: str, page: int, item_number: str = "",
 def analyze_page(img: Image.Image, file: str, page: int, item_number: str = "",
                  force_lang: str | None = None, opts: Options = Options(), detect_list: bool = True) -> PageResult:
     result = _process_page(img, file, page, item_number, force_lang, opts, detect_list)
+    if result.list_lines is not None and page > 1:
+        result.as_release = analyze_page(img, file, page, item_number, force_lang, opts, detect_list=False)
+        return result
     row = result.row
     if row is not None and row.needs_review == "YES" and not opts.clean:
         # Lighting/tilt cleanup hurts some pages and rescues others, so it is only a second
