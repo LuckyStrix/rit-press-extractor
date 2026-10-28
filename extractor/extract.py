@@ -28,9 +28,10 @@ class EngineReading:
 
 
 def read_fields(engine: str, lines: list[Line], lang: str | None,
-                anchor: tuple[Line, int, Line | None] | None = None) -> EngineReading:
-    """anchor: where the primary engine found the body, so a second engine reads the same spot."""
-    start = align_body_start(lines, *anchor) if anchor else find_body_start(lines)
+                anchor: tuple[Line, int, Line | None] | None = None, start: BodyStart | None = None) -> EngineReading:
+    """anchor: where the primary engine found the body, so a second engine reads the same spot.
+    start: where the body starts, if already found (from the page's layout regions)."""
+    start = align_body_start(lines, *anchor) if anchor else start or find_body_start(lines)
     if start is None:
         date, dflags = pick_release_date(lines, len(lines), None)
         nobody = ["could not find the article body"]

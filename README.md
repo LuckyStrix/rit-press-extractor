@@ -93,7 +93,7 @@ python -m pytest -q          # unit tests + end-to-end tests on generated pages 
 ```
 
 The code is in `extractor/`. `pipeline.py` is the per-page flow, `layout.py`
-finds the article, `extract.py` holds the voting rules, `folder.py` groups pages
+finds the article (with the page's blocks from the layout model in `regions.py`), `extract.py` holds the voting rules, `folder.py` groups pages
 into releases and attaches list-page subjects (`listpage.py`, `subjects.py`,
 `pages.py`), `gui.py` is the window, and `cli.py` defines the commands.
 

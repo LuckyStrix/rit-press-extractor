@@ -101,11 +101,11 @@ You want a version ending in `+cu128` and `GPU: True` with your card's name.
 
 ## 4. Download the OCR models
 
-This is the **only step that uses the internet**. It downloads about 300 MB of
+This is the **only step that uses the internet**. It downloads about 430 MB of
 model files into the `models\` folder. After this, the tool never goes online.
 
 ```powershell
-.venv\Scripts\python -m extractor setup --doctr
+.venv\Scripts\python -m extractor setup --doctr --layout
 ```
 
 ## 5. Check it works

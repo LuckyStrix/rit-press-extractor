@@ -15,7 +15,25 @@
 
 ### Where the article starts
 
-Checked in this order:
+A **layout model** (PaddlePaddle's PP-DocLayout_plus-L, run on the CPU) first marks out
+the page's blocks: the letterhead, the release and contact blocks, each paragraph. The
+article is the first text block below the release and contact blocks (the short blocks
+near the top with "For immediate release", a contact or the date). A headline, a note to
+the editors ("Please include the following…", "Memo to editors") or an aside in
+parentheses above the article is passed over: the first five words come from the article
+itself.
+
+The line rules below are then checked against that block:
+
+- If the rules' start lies in the model's block, they agree and the rules' start is
+  used (it knows where a dateline ends).
+- If the model could only find a headline (a release typed all in capitals, one line to a
+  block) and the rules start in a block below it, the rules' start is used.
+- Otherwise the model's block is used and the row is flagged: *the layout model and the
+  line layout disagree on where the article starts*.
+
+Without the model (`--layout rules`, or the model not downloaded) only the line rules
+are used. They are checked in this order:
 
 1. **After a dateline** like `ROCHESTER, N.Y. —`: the article starts after the dash.
 2. **The first indented paragraph.** In typewritten releases the article's first
@@ -186,13 +204,31 @@ in total / verified but wrong*, on the same 17 releases.
 These were measured on a single batch. Re-measure with your own answer keys
 before relying on any non-default setting.
 
+### The layout model, measured on scanned folders
+
+Box 2, folders 1–4 (110 releases, September–October 1969, scanned), read with Tesseract
+alone, scored on the first three words of each release against the folders' answer keys:
+
+| | first words right | dates right | subjects right | rows flagged |
+|---|---|---|---|---|
+| `--layout rules` | 80 | 109 | 108 | 82 |
+| `--layout model` (default) | **88** | 109 | 108 | 84 |
+
+The model found the article where the line rules took a later paragraph (a first
+paragraph typed flush, a quotation as the opening line, a memo above the article) and
+lost none the rules had right. On folder 5 (January 1971, 104 releases, not used while
+building the rules) the two agree on all but one release, a tilted page where both are
+wrong and both flag it. The model adds about a second per page on a CPU.
+
 ## Known limits
 
 - **Two engines can agree on the same wrong reading.** It's rare (it never
   happened in the measured set), but possible. Spot-check some unflagged rows,
   especially on a new kind of material.
-- **The layout rules are tuned on typewritten releases.** Typeset newsletters,
-  multi-column pages or handwritten notes may need new answer keys and rule changes.
+- **The line rules are tuned on typewritten releases.** The layout model is not,
+  but it was trained on modern documents, so check a new kind of material against an
+  answer key before trusting it. Typeset newsletters, multi-column pages or
+  handwritten notes may need new answer keys and rule changes.
 - **Common needless flags:**
   - a smudged or unusual name that Tesseract reads correctly but with low confidence
   - small punctuation one engine drops or misreads

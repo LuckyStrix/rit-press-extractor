@@ -205,6 +205,122 @@ def find_body_start(lines: list[Line]) -> BodyStart | None:
     return None
 
 
+# --- The article from a layout model's blocks (extractor/regions.py) -------------------------
+
+TEXT_LABELS = {"text", "paragraph_title", "doc_title", "abstract", "content"}
+TITLE_LABELS = {"paragraph_title", "doc_title"}
+CUE_MAX_LINES = 4  # a release or contact block is a few short lines
+CUE_WIDTH = 0.55  # a contact or date block is this narrow: release and contact blocks sit side by side
+CUE_ZONE = 0.45  # share of the page, from the top, where they are typed
+HEADING_LINES = 2  # a headline or aside above the article is a line or two
+NOTE = re.compile(r"^\W*(?:note|memo|editors?|attention|please)\b", re.I)  # a note to the editors
+CONTAINED = 0.9  # share of a block inside another that makes it the same block drawn again
+DISAGREE_FLAG = "the layout model and the line layout disagree on where the article starts; check it"
+
+
+def _block_rows(lines: list[Line], box: tuple[int, int, int, int]) -> list[tuple[int, int, Line]]:
+    """The block's part of each line it covers: (line index, index of its first word, its words)."""
+    def inside(w: Word) -> bool:
+        cx, cy = (w.box[0] + w.box[2]) / 2, (w.box[1] + w.box[3]) / 2
+        return box[0] <= cx <= box[2] and box[1] <= cy <= box[3]
+
+    rows = []
+    for i, ln in enumerate(lines):
+        if ks := [k for k, w in enumerate(ln.words) if inside(w)]:
+            rows.append((i, ks[0], Line([ln.words[k] for k in ks])))
+    return rows
+
+
+def _is_cue(rows: list[tuple[int, int, Line]], narrow: bool) -> bool:
+    """A release or contact block: a release line anywhere in it (the model may draw the
+    release and contact blocks as one), or a contact or a date in a narrow one (a paragraph
+    that names a date or a telephone runs the width of the page)."""
+    return any(HEADER_CUE.search(ln.text) or (narrow and (NON_BODY.search(ln.text) or parse_dates_in_line(ln, 0)))
+               for _, _, ln in rows)
+
+
+def _short_caps(rows: list[tuple[int, int, Line]]) -> bool:
+    return len(rows) <= HEADING_LINES and _all_caps([w.text for _, _, ln in rows for w in ln.words])
+
+
+def _title_case(rows: list[tuple[int, int, Line]]) -> bool:
+    """A single line with its words capitalised ("Library Exhibit Shows Rare Books")."""
+    words = [c for _, _, ln in rows for w in ln.words if (c := clean_word(w.text)) and c[0].isalpha()]
+    long = [c for c in words if len(c) > 3]  # "of", "the", "for" stay small in a title
+    return len(rows) == 1 and len(long) >= 2 and all(c[0].isupper() for c in long)
+
+
+def _heading(label: str, rows: list[tuple[int, int, Line]]) -> bool:
+    """A headline, a note to the editors or an aside set above the article: not its first words."""
+    text = " ".join(ln.text for _, _, ln in rows).strip()
+    aside = len(rows) <= HEADING_LINES and text.startswith("(") and text.endswith(")")
+    return label in TITLE_LABELS or bool(NOTE.match(text)) or aside or _short_caps(rows) or _title_case(rows)
+
+
+def _inside(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    """Does box a lie (nearly) all within box b?"""
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    return ix * iy >= CONTAINED * (a[2] - a[0]) * (a[3] - a[1])
+
+
+def article_blocks(lines: list[Line], regions, page_height: int) -> list[tuple[str, list[tuple[int, int, Line]]]]:
+    """The text blocks from the article's first one on, top to bottom, from the layout model's
+    regions: below the release and contact blocks (short blocks near the top with a release
+    line, a contact or a date), or, with none, from the first block of two or more lines below
+    the letterhead. A headline, note or aside above the article is passed over, unless what
+    follows is as short and as capitalised (a release typed all in capitals, a line to a block)."""
+    if not lines:
+        return []
+    blocks = [(r, rows) for r in regions if r.label in TEXT_LABELS and (rows := _block_rows(lines, r.box))]
+    # The model can draw a block twice, whole and in part: keep the whole.
+    blocks = [(r, rows) for r, rows in blocks
+              if not any(o is not r and _inside(r.box, o.box) and not _inside(o.box, r.box) for o, _ in blocks)]
+    if not blocks:
+        return []
+    height = _median([w.box[3] - w.box[1] for ln in lines for w in ln.words])
+    widest = max(r.box[2] - r.box[0] for r, _ in blocks)
+    cues = [(r, rows) for r, rows in blocks if r.box[1] < CUE_ZONE * page_height and len(rows) <= CUE_MAX_LINES
+            and _is_cue(rows, r.box[2] - r.box[0] < CUE_WIDTH * widest)]
+    if cues:
+        floor = max(r.box[3] for r, _ in cues)
+    else:
+        floor = max((r.box[3] for r in regions if r.label == "header"), default=0)
+    cue_ids = {id(r) for r, _ in cues}
+    cands = sorted(((r, rows) for r, rows in blocks if id(r) not in cue_ids and r.box[1] >= floor - height
+                    and (cues or len(rows) >= 2)), key=lambda b: (b[0].box[1], b[0].box[0]))
+    i = 0
+    while i + 1 < len(cands) and _heading(cands[i][0].label, cands[i][1]) and not _short_caps(cands[i + 1][1]):
+        i += 1
+    return [(r.label, rows) for r, rows in cands[i:]]
+
+
+def article_rows(lines: list[Line], regions, page_height: int) -> list[tuple[int, int, Line]] | None:
+    """The article's first block (see article_blocks): each line it covers, with the index of
+    its first word in the block."""
+    blocks = article_blocks(lines, regions, page_height)
+    return blocks[0][1] if blocks else None
+
+
+def choose_body_start(lines: list[Line], regions, page_height: int) -> BodyStart | None:
+    """Where the article starts, from the layout model's blocks and the line layout together.
+    Where the line layout's start falls inside the model's article block they agree, and the
+    line layout's start is kept (it knows datelines). So it is where the model could only take
+    a headline (a release typed all in capitals, a line to a block) and the line layout starts
+    in a block below it. Otherwise the model's block wins, and the disagreement is flagged."""
+    rule = find_body_start(lines)
+    blocks = article_blocks(lines, regions, page_height)
+    if not blocks:
+        return rule
+    label, rows = blocks[0]
+    if rule is not None and rule.line in {i for i, _, _ in rows}:
+        return rule
+    if rule is not None and _heading(label, rows) and any(rule.line in {i for i, _, _ in r} for _, r in blocks[1:]):
+        return rule
+    i, k, _ = rows[0]
+    return BodyStart(i, k, None, [DISAGREE_FLAG] if rule is not None else [])
+
+
 @dataclass
 class BodyWord:
     text: str

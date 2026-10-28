@@ -207,6 +207,7 @@ and then.
 | `two-digit year '82' assumed to be 1982` | the year was printed as two digits | the century |
 | `other dates also found above the body` | several dates in the header | the tool picked the release date, not another one |
 | `no dateline or paragraph indent; body start inferred from spacing` | the layout was unusual | the words come from the start of the article |
+| `the layout model and the line layout disagree on where the article starts` | the page's blocks and its lines point to different paragraphs; the blocks' choice was used | the words come from the first paragraph of the article (not a headline or a note to editors) |
 | `text above the chosen start reads like article text` | the tool may have skipped the real first paragraph | the words come from the first paragraph |
 | `… hyphenated across a line break; joined as '…'` | a word split by a line break was joined | the joined word |
 | `subject could not be settled; possible: 'A'; 'B'` | several list entries fit this release equally well | pick the right subject from the ones listed |
@@ -339,7 +340,7 @@ masked (`Xxxxx xx 9999`), so the output is safe to paste when asking for help.
 
 | Command | What it does |
 |---|---|
-| `setup [--doctr] [--trocr] [--tess-best]` | one-time model download (the only command that uses the internet) |
+| `setup [--doctr] [--layout] [--trocr] [--tess-best]` | one-time model download (the only command that uses the internet) |
 | `gui` | the window (`python3 run.py` opens it, installing first if needed) |
 | `process FILES/FOLDERS -o OUT.csv [-j N]` | read photos, group them into releases, attach list-page subjects, and update the CSV |
 | `serve [-o OUT.csv] [--port 8765]` | phone capture page on this computer |
@@ -349,5 +350,5 @@ masked (`Xxxxx xx 9999`), so the output is safe to paste when asking for help.
 
 `process` and `serve` also accept the OCR options described in
 [accuracy](accuracy.md#optional-settings-and-their-measured-effect)
-(`--engines`, `--reread`, `--best-model`, `--clean`, `--multipass`). The
+(`--engines`, `--layout`, `--reread`, `--best-model`, `--clean`, `--multipass`). The
 defaults are the best measured settings.

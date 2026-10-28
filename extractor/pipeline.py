@@ -7,11 +7,12 @@ from dataclasses import asdict, dataclass, replace
 from PIL import Image
 
 from . import ocr
-from .layout import HEADER_CUE, body_words, find_slug
+from .layout import HEADER_CUE, body_words, choose_body_start, find_slug
 from .models import Line, Word
 from .pages import HEAD, PageSignals, has_release_header, page_signals
 from .listpage import (DAY_DRIFT, bare_day_column, day_column, days_in_order, has_month_line, header_band,
                        is_list_page, missing_day_cells, vote_days, with_days, with_month_line)
+from .regions import find_regions, layout_available
 from .reread import regions_from, reread, reread_trocr
 from .extract import EngineReading, _alnum, _same_words, read_fields, reconcile_date, reconcile_words
 from .preprocess import clean_page, deskew, flatten_page, normalize_size
@@ -40,6 +41,9 @@ class Options:
     # Engines that vote. Tesseract always leads (layout + value); "easyocr" and "doctr" read
     # the whole page, "trocr" re-reads just the date and opening rows.
     engines: tuple[str, ...] = ("tesseract", "easyocr", "doctr")
+    # Where the article starts: "model" = the layout model's blocks checked against the line
+    # layout (the line layout alone if the model is not installed); "rules" = the line layout only.
+    layout: str = "model"
 
 
 @dataclass
@@ -96,12 +100,20 @@ def analyze_page(img: Image.Image, file: str, page: int, item_number: str = "",
     row = result.row
     if row is not None and row.needs_review == "YES" and not opts.clean:
         # Lighting/tilt cleanup hurts some pages and rescues others, so it is only a second
-        # chance for flagged pages. The retry replaces the first result only if it leaves fewer
-        # reasons to review; verification still needs the same engine agreement either way.
+        # chance for flagged pages. The retry replaces the first result if it finds a field the
+        # first missed, or else leaves fewer reasons to review; verification still needs the same
+        # engine agreement either way.
         retry = _process_page(img, file, page, item_number, force_lang, replace(opts, clean=True), detect_list)
-        if retry.row.review_reasons.count(" | ") < row.review_reasons.count(" | "):
+        if retry.row is not None and _worse(row) > _worse(retry.row):
             return retry
     return result
+
+
+def _worse(row: Row) -> tuple[int, int]:
+    """How far a row is from done: fields not found, then reasons to review (counted as the
+    first result has always been compared with the retry: by the separators between them)."""
+    missing = (not row.release_date) + (not row.first_five_words)
+    return missing, row.review_reasons.count(" | ")
 
 
 def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
@@ -153,7 +165,10 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     else:
         reasons.append(f"text may be non-English (weak signal for '{detected}'); read as English")
 
-    readings = [read_fields("tesseract", lines, lang)]
+    start = None
+    if opts.layout == "model" and layout_available():
+        start = choose_body_start(lines, find_regions(page_img), page_img.height)
+    readings = [read_fields("tesseract", lines, lang, start=start)]
     easy_langs = ocr.easy_langs_for(tess_lang)
     if "easyocr" not in opts.engines:
         pass

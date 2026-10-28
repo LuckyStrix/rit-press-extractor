@@ -19,8 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
 PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-MODEL_FILES = ["models/craft_mlt_25k.pth", "models/english_g2.pth"]
-IMPORTS = "import torch, easyocr, doctr, scipy, cv2, PIL, pypdfium2, pillow_heif, openpyxl"
+MODEL_FILES = ["models/craft_mlt_25k.pth", "models/english_g2.pth", "models/layout/inference.onnx"]
+IMPORTS = "import torch, easyocr, doctr, onnxruntime, scipy, cv2, PIL, pypdfium2, pillow_heif, openpyxl"
 TORCH_INDEX = {"cpu": "https://download.pytorch.org/whl/cpu", "gpu": "https://download.pytorch.org/whl/cu128"}
 
 
@@ -83,7 +83,7 @@ def ensure_models() -> None:
     if models_present():
         return
     say("Downloading the OCR models (first run only; the only time this program uses the internet)")
-    if run(PY, "-m", "extractor", "setup", "--doctr") != 0:
+    if run(PY, "-m", "extractor", "setup", "--doctr", "--layout") != 0:
         stop("Downloading the OCR models failed. Check the internet connection and run this again.")
 
 

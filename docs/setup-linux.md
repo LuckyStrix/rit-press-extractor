@@ -85,11 +85,11 @@ You want `GPU: True`. If it says `False`, see [Troubleshooting](#troubleshooting
 
 ## 5. Download the OCR models
 
-This is the **only step that uses the internet**. It downloads about 300 MB of
+This is the **only step that uses the internet**. It downloads about 430 MB of
 model files into the `models/` folder. After this, the tool never goes online.
 
 ```bash
-.venv/bin/python -m extractor setup --doctr
+.venv/bin/python -m extractor setup --doctr --layout
 ```
 
 ## 6. Check it works

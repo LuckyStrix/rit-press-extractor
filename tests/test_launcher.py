@@ -12,6 +12,7 @@ def test_models_are_reported_missing_in_an_empty_folder(tmp_path, monkeypatch):
     assert not run.models_present()
     (tmp_path / "models" / "doctr").mkdir(parents=True)
     for f in run.MODEL_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
     assert not run.models_present()  # docTR's folder is still empty
     (tmp_path / "models" / "doctr" / "m.pt").write_bytes(b"x")

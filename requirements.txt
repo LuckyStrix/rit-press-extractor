@@ -10,3 +10,5 @@ pytest>=9
 # Optional extra engines (--engines ...,doctr / ...,trocr); models via setup --doctr / --trocr
 python-doctr>=1.1
 transformers>=4.40
+# Layout model (--layout model, the default); model via setup --layout
+onnxruntime>=1.20
