@@ -28,3 +28,6 @@ __pycache__/
 *.zip
 *.whl
 *.tmp
+
+# Personal Claude Code settings
+.claude/settings.local.json
