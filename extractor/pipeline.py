@@ -86,6 +86,7 @@ class PageResult:
     signals: PageSignals
     slug: str = ""
     opening: str = ""
+    text: str = ""  # every word read on the page, to check list-page subjects against
     list_lines: list[Line] | None = None
     # A list page's reading as a release, kept for a list page past the first page of its file:
     # list pages only ever lead a scan, so the folder pass uses this if a release comes before it.
@@ -211,11 +212,11 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
     reasons += date.reasons + [r for r in words.reasons if r not in date.reasons]
     printed = next((r.date.printed for r in readings if r.date and r.date.iso == date.value), "")
     start = readings[0].start
+    everything = " ".join(w.text for ln in lines for w in ln.words)
     if start is not None:
         slug = find_slug(lines, start)
         opening = " ".join(w.text for w in body_words(lines, start, OPENING_WORDS))
     else:  # no body found: the whole page is the best text there is to match on
-        everything = " ".join(w.text for ln in lines for w in ln.words)
         slug, opening = "", " ".join(everything.split()[:OPENING_WORDS])
     row = Row(
         file=file, page=page, item_number=item_number,
@@ -228,7 +229,7 @@ def _process_page(img: Image.Image, file: str, page: int, item_number: str = "",
         review_reasons=" | ".join(reasons),
         slug=slug, opening_text=opening,
     )
-    return PageResult(row, signals, slug, opening)
+    return PageResult(row, signals, slug, opening, everything)
 
 
 def read_list_page(page_img: Image.Image, lines: list[Line], lang: str = "eng", best: bool = False,

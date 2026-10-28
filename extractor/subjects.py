@@ -37,6 +37,7 @@ class Release:
     date_verified: bool
     slug: str  # the short subject tag printed under the date, if any
     text: str  # opening words of the release
+    body: str = ""  # every word of every page of the release; checks a subject's spelling, not its match
 
 
 @dataclass

@@ -49,15 +49,19 @@ def _candidates(entries: list[ListEntry], idxs: list[int]) -> str:
     return "; ".join(f"'{entries[i].subject}'" for i in idxs)
 
 
+def _release_words(release: Release) -> set[str]:
+    return {k for w in " ".join([release.slug, release.text, release.body]).split() for k in word_parts(w)}
+
+
 def _subject_doubts(entry: ListEntry, release: Release) -> list[str]:
-    """The subject's words that may be misread. A word is sure when the release's own text (its
-    slug and opening words) spells it the same: it has then been read twice, independently.
+    """The subject's words that may be misread. A word is sure when the release's own text (any
+    page of it) spells it the same: it has then been read twice, independently.
     Otherwise Tesseract must have read it surely on the list, and, where other engines read the
     page too, one of them must have read the same letters. Words joined by a dash on the list
     ("reception-Ellingson") are found part by part."""
     if not entry.word_confs:
         return [] if entry.min_conf >= SUBJECT_MIN_CONF else [entry.subject]
-    seen = {k for w in release.slug.split() + release.text.split() for k in word_parts(w)}
+    seen = _release_words(release)
     return [w for w, conf, also in entry.word_confs
             if word_key(w) and not all(k in seen for k in word_parts(w)) and (conf < SUBJECT_MIN_CONF or also is False)]
 
@@ -67,7 +71,7 @@ def _subject_typos(entry: ListEntry, release: Release) -> list[tuple[str, str]]:
     the list, "enrollment" in the release). Every engine can read such a word the same, because it
     is typed that way (or struck over), so only the release can show it; either copy may be the
     misspelled or misread one. Words of different length (plurals) are left alone."""
-    seen = {k for w in release.slug.split() + release.text.split() for k in word_parts(w)}
+    seen = _release_words(release)
     typos = []
     for w in entry.subject.split():
         for k in word_parts(w):
@@ -152,7 +156,8 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
         # A later page's "RIT/<slug>" line names the release too ("RIT/ASEE Conference").
         tags = " ".join(w for m in members[1:] for w in sorted(m.result.signals.tag))
         texts.append(Release(len(rows) - 1, _as_date(date), row.date_verified == "YES",
-                             " ".join(filter(None, [first.result.slug, tags])), first.result.opening))
+                             " ".join(filter(None, [first.result.slug, tags])), first.result.opening,
+                             " ".join(m.result.text for m in members)))
 
     summary = {"list_pages": len(list_pages), "entries": 0, "releases": len(rows), "matched": 0,
                "ambiguous": 0, "no_subject": 0, "unmatched_entries": 0}
