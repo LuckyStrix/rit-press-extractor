@@ -470,3 +470,13 @@ def test_other_start_flags_are_not_dropped():
     r = _readings("Mr. Richard Hill, 58 Keats", "Mr. Richard Hill 58 Keats", "Mr. Richard Hill, 58 Keats")
     r[0].word_flags.append("no dateline or paragraph indent; body start inferred from spacing")
     assert reconcile_words(r).reasons  # Tesseract's own layout guess still needs a look
+
+
+def test_tesseract_doubt_counts_for_less_when_all_three_engines_read_the_same():
+    def reasons(conf, engines):
+        words = lambda c: [BodyWord("Paul", 95), BodyWord("Kazmierski", c), BodyWord("former", 95)]
+        return reconcile_words([EngineReading(e, None, words(conf if e == "tesseract" else 95)) for e in engines]).reasons
+
+    assert reasons(85, ["tesseract", "easyocr", "doctr"]) == []
+    assert reasons(85, ["tesseract", "easyocr"]) == ["tesseract confidence 85 < 90 on 'Kazmierski'"]
+    assert reasons(75, ["tesseract", "easyocr", "doctr"]) == ["tesseract confidence 75 < 80 on 'Kazmierski'"]

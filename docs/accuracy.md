@@ -94,7 +94,8 @@ its date and by what the release says, and it is marked verified only when:
    beats every other entry for this release, and every other release for this entry, by a
    clear margin; and
 2. every word of the list's text for that subject was read with Tesseract confidence of
-   at least 85.
+   at least 85, or is spelled the same in the release's own slug or opening words (read
+   there separately, so a weak read on the list is confirmed by a second one).
 
 Anything else is flagged: a match by date only, by text only (no list entry carries the
 release's date), or several equally good candidates (listed in the reasons, with the subject
@@ -125,7 +126,8 @@ of these hold:
    - Another engine may *leave out* punctuation that Tesseract read, but not add
      or change any.
    - For dates, the engines must agree on the calendar date and on the date as printed.
-2. **Confidence.** Every word Tesseract read for the field scored at least 90.
+2. **Confidence.** Every word Tesseract read for the field scored at least 90, or at least
+   80 when all three engines read the field identically.
 3. **No doubts about the page:** no layout guess, no ambiguous date, no
    uncertain language, no low-resolution warning.
 

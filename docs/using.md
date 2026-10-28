@@ -83,7 +83,7 @@ Keep outputs in `data/`: it's private and never committed to git.
 | `language` | the language the article was read in |
 | `needs_review` | `YES` if either field isn't verified, or anything else needs a look |
 | `review_reasons` | every reason, in plain words |
-| `subject`, `subject_verified`, `subject_match` | the subject from the folder's list page, whether the match is certain, and how it was found (`date+text`, `date`, `text`, `none`). Blank without a list page |
+| `subject`, `subject_verified`, `subject_match` | the subject from the folder's list page, whether the match is certain, and how it was found (`date+text`, `date`, `text`, `none`). Blank without a list page. A release no list entry fits (`none`, no subject) is not flagged for it: some releases were never listed; entries no release took go to the `_unmatched_subjects.csv` file |
 | `slug`, `opening_text` | the short tag under the date and the first 40 article words, kept so a list page added later can be matched without reading the photos again |
 | `page_count`, `pages` | how many pages the release has, and which ones |
 | `folder` | the folder the pages came from |
@@ -211,7 +211,7 @@ and then.
 | `text above the chosen start reads like article text` | the tool may have skipped the real first paragraph | the words come from the first paragraph |
 | `… hyphenated across a line break; joined as '…'` | a word split by a line break was joined | the joined word |
 | `subject could not be settled; possible: 'A'; 'B'` | several list entries fit this release equally well | pick the right subject from the ones listed |
-| `no subject found in the list page` | no entry for this release's date fits it | whether the list is missing it, or the date was misread |
+| `no subject found in the list page (possible: …)` | no entry fits this release clearly, but the ones listed might | whether one of them is the release's subject |
 | `subject matched by date only` / `by its text only` | only one kind of evidence supports the match | that the subject really belongs to this release |
 | `subject text was read with low confidence` | the list page's text was hard to read | the spelling of the subject |
 | `a page with no header, date or page number was assumed to be a continuation` | a page was joined to the release before it without clear evidence | whether it is really part of that release, or a new one |

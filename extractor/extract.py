@@ -14,6 +14,9 @@ N_WORDS = 5
 # clears these. Agreement is the main gate: EasyOCR scores short words like "of" low
 # even when read correctly, so its floor only catches reads it was itself unsure of.
 MIN_CONF = {"tesseract": 90.0, "easyocr": 30.0, "doctr": 0.0, "trocr": 0.0}
+# Three engines reading the same characters is a stronger check than two, so Tesseract's own
+# doubt about a word ("Kazmierski" read surely but scored 85) counts for less then.
+ALL_AGREE, AGREED_CONF = 3, 80.0
 
 
 @dataclass
@@ -95,8 +98,11 @@ def _merge_flags(flag_lists: list[tuple[str, list[str]]]) -> list[str]:
     return out
 
 
-def _low_conf_reasons(r: EngineReading, confs: list[tuple[str, float]]) -> list[str]:
+def _low_conf_reasons(r: EngineReading, confs: list[tuple[str, float]], agreed: int = 0) -> list[str]:
+    """agreed: how many engines read the field the same (0 if they did not agree)."""
     limit = MIN_CONF[r.engine]
+    if r.engine == "tesseract" and agreed >= ALL_AGREE:
+        limit = min(limit, AGREED_CONF)
     return [f"{r.engine} confidence {c:.0f} < {limit:.0f} on '{t}'" for t, c in confs if c < limit]
 
 
@@ -135,7 +141,7 @@ def reconcile_date(readings: list[EngineReading]) -> FieldResult:
                            f"engines disagree on date: {primary.engine} '{d.printed}' vs {r.engine} '{r.date.printed}'")
     for r in counted:
         if r.date:
-            reasons.extend(_low_conf_reasons(r, [(r.date.printed, r.date.min_conf)]))
+            reasons.extend(_low_conf_reasons(r, [(r.date.printed, r.date.min_conf)], len(supporters) if verified else 0))
     return FieldResult(d.iso, d.min_conf if verified else 0.0, reasons)
 
 
@@ -173,6 +179,6 @@ def reconcile_words(readings: list[EngineReading]) -> FieldResult:
             other = " ".join(w.text for w in r.words)
             reasons.append(f"engines disagree on first words: {primary.engine} '{value}' vs {r.engine} '{other}'")
     for r in counted:
-        reasons.extend(_low_conf_reasons(r, [(w.text, w.conf) for w in r.words]))
+        reasons.extend(_low_conf_reasons(r, [(w.text, w.conf) for w in r.words], len(supporters) if verified else 0))
     conf = min(w.conf for w in primary.words) if verified else 0.0
     return FieldResult(value, conf, reasons)

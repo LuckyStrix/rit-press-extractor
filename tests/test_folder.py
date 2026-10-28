@@ -1,5 +1,6 @@
 """The folder pass: pages -> releases, list-page subjects attached, problems flagged."""
 from extractor.folder import PageIn, assemble_folder
+from extractor.models import Word
 from extractor.pages import PageSignals
 from extractor.pipeline import PageResult, Row
 
@@ -62,11 +63,14 @@ def test_subjects_attach_by_date_and_text_and_verify():
     assert [e.subject for e in out.unmatched] == ["Football schedule"]
 
 
-def test_release_with_no_entry_is_flagged():  # the one entry is a day off and its text unrelated
+def test_release_with_no_entry_is_not_flagged_for_it():  # the one entry is a day off and its text unrelated
     out = assemble_folder("f1", [list_page("Nov. 3, 1970 Football schedule"), release_page("a.pdf")])
     r = out.rows[0]
-    assert r.subject == "" and r.subject_match == "none" and r.needs_review == "YES"
-    assert "no subject found in the list page" in r.review_reasons
+    # No list entry fits, and none is in doubt: nothing for a person to settle. The entry no
+    # release took is still listed among the unmatched ones.
+    assert r.subject == "" and r.subject_match == "none" and r.subject_verified == "NO"
+    assert "no subject found" not in r.review_reasons
+    assert [e.subject for e in out.unmatched] == ["Football schedule"]
 
 
 def test_the_one_entry_left_on_a_release_s_day_is_given_but_flagged():
@@ -129,3 +133,33 @@ def test_a_later_pages_slug_line_helps_find_the_subject():
     a, b = assemble_folder("f1", pages).rows
     assert (a.subject, a.subject_match) == ("ASEE conference", "date+text")
     assert b.subject == "Women's Club Fall luncheon"
+
+
+def _weak(page: PageIn, word: str, conf: float = 60.0) -> PageIn:
+    """The list page with one word read unsurely."""
+    for ln in page.result.list_lines:
+        ln.words = [Word(w.text, conf, w.box) if w.text == word else w for w in ln.words]
+    return page
+
+
+def test_a_subject_word_read_unsurely_but_spelled_the_same_in_the_release_is_verified():
+    out = assemble_folder("f1", [_weak(list_page("Nov. 2, 1970 Rankin named editor"), "Rankin"),
+                                 release_page("a.pdf", opening="Mrs. Carolyn Rankin has been named editor")])
+    r = out.rows[0]
+    assert (r.subject, r.subject_verified) == ("Rankin named editor", "YES")
+    assert "low confidence" not in r.review_reasons
+
+
+def test_a_subject_word_read_unsurely_and_not_in_the_release_is_flagged():
+    out = assemble_folder("f1", [_weak(list_page("Nov. 2, 1970 Rankin named editor"), "editor"),
+                                 release_page("a.pdf", opening="Mrs. Carolyn Rankin has been named to the post")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO"
+    assert "subject text was read with low confidence" in r.review_reasons
+
+
+def test_a_weak_subject_word_joined_by_a_dash_is_found_part_by_part():
+    out = assemble_folder("f1", [_weak(list_page("Nov. 2, 1970 Special retirement reception-Ellingson"),
+                                       "reception-Ellingson"),
+                                 release_page("a.pdf", opening="A special retirement reception honoring Mark Ellingson")])
+    assert out.rows[0].subject_verified == "YES"

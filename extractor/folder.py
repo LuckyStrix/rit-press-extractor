@@ -7,6 +7,7 @@ Anything not settled by clear evidence is flagged, never guessed.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
 
@@ -48,19 +49,38 @@ def _candidates(entries: list[ListEntry], idxs: list[int]) -> str:
     return "; ".join(f"'{entries[i].subject}'" for i in idxs)
 
 
-def _apply_match(row: Row, match: Match, entries: list[ListEntry]) -> None:
+def _key(word: str) -> str:
+    return re.sub(r"[\W_]", "", word.lower())
+
+
+def _subject_sure(entry: ListEntry, release: Release) -> bool:
+    """Is every word of the subject either read surely on the list, or found in the release's
+    own text (its slug and opening words)? A word the list page read weakly but the release
+    spells the same has been read twice, independently. Words joined by a dash on the list
+    ("reception-Ellingson") are found part by part."""
+    seen = {_key(w) for w in re.split(r"[\s\-–—/]+", f"{release.slug} {release.text}")}
+    if not entry.word_confs:
+        return entry.min_conf >= SUBJECT_MIN_CONF
+    return all(c >= SUBJECT_MIN_CONF or all(not _key(p) or _key(p) in seen for p in re.split(r"[\-–—/]+", w))
+               for w, c in entry.word_confs)
+
+
+def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Release) -> None:
     row.subject_match = match.method
     if match.entry is None:
+        row.subject_verified = "NO"
+        if match.method == "none" and not match.candidates:
+            return  # no list entry fits: nothing for a person to settle (subject_match says "none")
         options = f" (possible: {_candidates(entries, match.candidates)})" if match.candidates else ""
         _add_reasons(row, ("no subject found in the list page" if match.method == "none"
                            else "subject could not be settled") + options)
-        row.subject_verified = "NO"
         return
     entry = entries[match.entry]
     if match.shared:  # one list line covers several releases, so each keeps its own title
         row.subject, row.subject_verified, row.subject_match = row.first_five_words, row.words_verified, "shared"
         return
     row.subject = entry.subject
+    sure = _subject_sure(entry, release)
     if match.duplicate:
         _add_reasons(row, "another release in the folder reads the same and has the same subject; "
                           "check for a duplicate copy")
@@ -71,9 +91,9 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry]) -> None:
         _add_reasons(row, "subject matched by its text only" + (
             "" if listed == row.release_date else f"; its list entry is dated {listed}" if listed and row.release_date
             else "; no list entry carries this release's date"))
-    elif entry.min_conf < SUBJECT_MIN_CONF:
+    elif not sure:
         _add_reasons(row, "subject text was read with low confidence; check its spelling")
-    row.subject_verified = "YES" if match.confident and entry.min_conf >= SUBJECT_MIN_CONF else "NO"
+    row.subject_verified = "YES" if match.confident and sure else "NO"
 
 
 def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
@@ -110,7 +130,7 @@ def assemble_folder(folder: str, pages: list[PageIn]) -> FolderOutput:
         entries = parsed.entries
         result = match_subjects(texts, entries)
         for i, row in enumerate(rows):
-            _apply_match(row, result.matches[i], entries)
+            _apply_match(row, result.matches[i], entries, texts[i])
         unmatched = [entries[i] for i in result.unmatched_entries]
         outcomes = Counter("matched" if m.entry is not None else "ambiguous" if m.candidates else "no_subject"
                            for m in result.matches.values())

@@ -52,6 +52,7 @@ class ListEntry:
     page: int  # index of the list page within the folder's list pages
     line: int
     flags: list[str] = field(default_factory=list)
+    word_confs: list[tuple[str, float]] = field(default_factory=list)  # each subject word and its confidence
 
 
 @dataclass
@@ -386,6 +387,11 @@ class _Row:
     flags: list[str]
     page: int
     line: int
+    word_confs: list[tuple[str, float]] = field(default_factory=list)
+
+
+def _confs(words: list[Word]) -> list[tuple[str, float]]:
+    return [(w.text, w.conf) for w in words]
 
 
 def _month_of(token: str, month: str | None) -> str | None:
@@ -434,6 +440,7 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
             prev = rows[-1]
             prev.subject = _tidy(f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
+            prev.word_confs += row.word_confs
         else:
             rows.append(row)
         last_top = top
@@ -461,12 +468,12 @@ def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: f
         day = int(first.text) if 1 <= int(first.text) <= 31 else None
         flags = [] if day else [f"day read as '{first.text}'; assumed same day as the entry above"]
         return _Row(month, day, None, first.text, _tidy(" ".join(w.text for w in rest)), min(w.conf for w in rest),
-                    flags, page_no, i)
+                    flags, page_no, i, _confs(rest))
     m = _ROW.match(text)
     abbr = _month_of(m["mon"], month) if m else None
     if not m or abbr is None:
         return _Row(None, None, None, "", _tidy(text), min(w.conf for w in words),
-                    ["no date printed; assumed same day as the entry above"], page_no, i)
+                    ["no date printed; assumed same day as the entry above"], page_no, i, _confs(words))
     flags: list[str] = []
     if m["mon"] != abbr.capitalize():
         flags.append(f"month read as '{m['mon']}'; taken as {abbr.capitalize()}")
@@ -478,7 +485,8 @@ def _row(page_no: int, i: int, ln: Line, text: str, month: str | None, height: f
     printed = text[: len(text) - len(m["rest"])].strip()
     # Confidence of the subject's own words; the printed date in front is often garbled.
     subject_words = words[len(printed.split()):] or words
-    return _Row(abbr, day, m["yr"], printed, _tidy(m["rest"]), min(w.conf for w in subject_words), flags, page_no, i)
+    return _Row(abbr, day, m["yr"], printed, _tidy(m["rest"]), min(w.conf for w in subject_words), flags, page_no, i,
+                _confs(subject_words))
 
 
 def parse_list_pages(pages: list[list[Line]], default_year: int | None = None,
@@ -521,5 +529,5 @@ def parse_list_pages(pages: list[list[Line]], default_year: int | None = None,
             flags.append(f"date is out of sequence (after {prev.isoformat()})")
         else:
             prev = date
-        entries.append(ListEntry(date, r.subject, r.printed, r.min_conf, r.page, r.line, flags))
+        entries.append(ListEntry(date, r.subject, r.printed, r.min_conf, r.page, r.line, flags, r.word_confs))
     return ListResult(entries, year, ABBR.index(month) + 1 if month else None)
