@@ -21,8 +21,9 @@ MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 TESSDATA_BEST = MODELS_DIR / "tessdata_best"  # optional, filled by `setup --tess-best`
 CELL_PAD = 40  # white margin around a single cell read on its own
 # The neural engines' models are loaded once per process and shared by its threads, which take
-# turns with them (on a GPU each turn is short). Tesseract runs as its own program and needs none.
-MODEL_LOCK = threading.RLock()
+# turns with each model (on a GPU each turn is short). Each model has its own lock, so one thread
+# can read with EasyOCR while another reads with docTR. Tesseract runs as its own program.
+EASYOCR_LOCK, DOCTR_LOCK, TROCR_LOCK = threading.RLock(), threading.RLock(), threading.RLock()
 def _find_tesseract() -> str:
     """$TESSERACT, else PATH, else where a Windows install puts it: per-user (no administrator
     needed), a copy inside the project folder, or the all-users default."""
@@ -224,7 +225,7 @@ def easy_langs_for(tess_lang: str) -> tuple[str, ...] | None:
 
 def easyocr_lines(img: Image.Image, langs: tuple[str, ...], beam: bool = False) -> list[Line]:
     """beam: beam-search decoding (slower; better on small punctuation). Used for field crops."""
-    with MODEL_LOCK:
+    with EASYOCR_LOCK:
         results = _easy_reader(langs).readtext(
             np.array(img), detail=1, paragraph=False,
             decoder="beamsearch" if beam else "greedy", beamWidth=5,
@@ -308,7 +309,7 @@ def _doctr_predictor():
 
 def doctr_lines(img: Image.Image) -> list[Line]:
     arr = np.array(img.convert("RGB"))
-    with MODEL_LOCK:
+    with DOCTR_LOCK:
         page = _doctr_predictor()([arr]).pages[0]
     h, w = arr.shape[:2]
     lines = []
@@ -339,7 +340,7 @@ def trocr_line(img: Image.Image) -> tuple[str, float]:
     """Read one text line. Returns (text, confidence 0-100 from the beam's sequence probability)."""
     import torch
 
-    with MODEL_LOCK, torch.no_grad():
+    with TROCR_LOCK, torch.no_grad():
         processor, model = _trocr()
         pixels = processor(images=img.convert("RGB"), return_tensors="pt").pixel_values.to(model.device)
         out = model.generate(pixels, max_new_tokens=64, num_beams=4,
