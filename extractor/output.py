@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import os
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
@@ -14,6 +15,9 @@ from .pipeline import Row, row_dict
 COLUMNS = [f.name for f in fields(Row)]
 UNMATCHED_COLUMNS = ["folder", "list_date", "subject", "printed_date", "review_reasons"]
 _lock = threading.Lock()
+# Windows refuses to replace a file another program has open. A virus scanner or the search
+# indexer opens a file just written for a moment, so the replace is tried again for a while.
+REPLACE_TRIES, REPLACE_WAIT = 10, 0.5
 
 
 FORMULA_STARTS = ("=", "+", "-", "@")
@@ -64,10 +68,23 @@ def replace_private(path: Path, write: Callable, binary: bool = False) -> None:
         with (os.fdopen(fd, "wb") if binary else os.fdopen(fd, "w", newline="", encoding="utf-8")) as f:
             write(f)
         os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        _replace(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def _replace(tmp: Path, path: Path) -> None:
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt + 1 < REPLACE_TRIES:
+                time.sleep(REPLACE_WAIT)
+    raise PermissionError(f"could not replace {path}: another program (a spreadsheet, a preview pane, a "
+                          f"virus scanner) kept it open for {REPLACE_TRIES * REPLACE_WAIT:.0f} seconds; "
+                          f"close it and run again")
 
 
 def _write(path: Path, columns: list[str], rows: list[dict]) -> None:

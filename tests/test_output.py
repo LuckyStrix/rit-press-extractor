@@ -88,3 +88,39 @@ def test_unmatched_report_is_replaced_per_folder(tmp_path):
         ("f2", "1970-11-05", "Tennis"), ("f1", "1970-11-06", "Rowing")]
     write_unmatched(path, "f1", [])
     assert [r["folder"] for r in read(path)] == ["f2"]
+
+
+def test_a_file_held_open_for_a_moment_is_still_replaced(tmp_path, monkeypatch):
+    import os
+
+    from extractor import output
+
+    real, calls = os.replace, []
+
+    def busy_then_free(src, dst):
+        calls.append(dst)
+        if len(calls) < 3:  # a virus scanner holds the old file for a moment (Windows)
+            raise PermissionError(5, "Access is denied")
+        real(src, dst)
+
+    monkeypatch.setattr(output.os, "replace", busy_then_free)
+    monkeypatch.setattr(output, "REPLACE_WAIT", 0)
+    target = tmp_path / "r.csv"
+    output.replace_private(target, lambda f: f.write("x"))
+    assert target.read_text() == "x" and len(calls) == 3
+    assert list(tmp_path.iterdir()) == [target]  # no temporary file left behind
+
+
+def test_a_file_held_open_for_good_gives_a_clear_error(tmp_path, monkeypatch):
+    import pytest
+
+    from extractor import output
+
+    def busy(src, dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(output.os, "replace", busy)
+    monkeypatch.setattr(output, "REPLACE_WAIT", 0)
+    with pytest.raises(PermissionError, match="close it and run again"):
+        output.replace_private(tmp_path / "r.csv", lambda f: f.write("x"))
+    assert list(tmp_path.iterdir()) == []
