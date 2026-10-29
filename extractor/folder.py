@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
-from .listpage import ListEntry, parse_list_pages, word_key, word_parts
+from .listpage import ListEntry, is_unfinished, parse_list_pages, word_key, word_parts
 from .pages import group_pages
 from .pipeline import PageResult, Row
 from .subjects import Match, Release, match_subjects
@@ -158,7 +158,12 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
         if unknown:
             _add_reasons(row, f"subject has words that are not English and not named in the release "
                               f"({', '.join(repr(w) for w in unknown)}); check their spelling")
-    row.subject_verified = "YES" if match.confident and not doubts and not typos and not unknown else "NO"
+    # A subject that stops mid-way ("(Jan.", "Manage-") lost its end on the list: words that were
+    # not read at all can't be doubted one by one.
+    cut = is_unfinished(entry.subject)
+    if cut and match.method == "date+text":
+        _add_reasons(row, "subject looks cut short (it ends mid-way); check the rest on the list page")
+    row.subject_verified = "YES" if match.confident and not doubts and not typos and not unknown and not cut else "NO"
 
 
 def _leading_lists(pages: list[PageIn]) -> list[PageIn]:

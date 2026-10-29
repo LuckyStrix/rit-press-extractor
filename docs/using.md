@@ -215,6 +215,7 @@ and then.
 | `subject matched by date only` / `by its text only` | only one kind of evidence supports the match | that the subject really belongs to this release |
 | `subject may be misread ('Businless')` | Tesseract was unsure of these words on the list page, or another engine read them differently, and the release doesn't spell them | the spelling of those words |
 | `subject has words that are not English and not named in the release ('Visttors')` | a subject word is in no English word list and the release doesn't write it as a name; the list may be mistyped, or the word misread in both copies | the spelling of those words |
+| `subject looks cut short (it ends mid-way)` | the subject ends on a hyphen or with a bracket or quote left open, so the rest of it wasn't read from the list | the end of the subject, from the list page |
 | `subject may have a typo (list 'entollment', release 'enrollment')` | a subject word is spelled a letter or two differently in the release; the list itself may be mistyped or struck over, or one of the two was misread | which spelling is right |
 | `a page with no header, date or page number was assumed to be a continuation` | a page was joined to the release before it without clear evidence | whether it is really part of that release, or a new one |
 | `the page before ended '-more-' but the next page begins a new release` | the pages don't follow the markers | the page order and grouping |

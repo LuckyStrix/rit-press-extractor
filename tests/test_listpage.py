@@ -493,3 +493,24 @@ def test_stray_marks_at_either_end_of_a_subject_are_dropped():
     assert _tidy("° Unique") == "Unique" and _tidy("Davidson NTID -") == "Davidson NTID"
     assert _tidy('"Victory over Poverty" James McCuller') == '"Victory over Poverty" James McCuller'
     assert _tidy("Prof. Smith named Jr.") == "Prof. Smith named Jr."
+
+
+def test_a_line_left_unfinished_goes_on_below_though_spaced_like_an_entry():
+    """Box 2 folder 7: "Manage-" ends one line, "ment Seminar." starts the next, spaced nearly as
+    far apart as the entries are."""
+    head = [(100, 100, HEAD[0]), (100, 160, "MONTH . January 1970"),
+            (100, 220, "Date"), (184, 220, "Subject"), (1000, 220, "Additional Info.")]
+    rows = [(100, 300, "Jan. 26 Pre-Retirement Planning March 10-11"),
+            (100, 370, "Jan. 29 Robert McNeill, speaker (Feb. 2) Manage-"), (184, 433, "ment Seminar."),
+            (100, 510, "Jan. 29 Population Explosion"), (100, 580, "Jan. 30 Production for Book Publishing")]
+    subjects = [e.subject for e in parse_list_pages([layout_page(head + rows)], 1970).entries]
+    assert "Robert McNeill, speaker (Feb. 2) Management Seminar." in subjects
+    assert "ment Seminar." not in subjects
+
+
+def test_a_subject_left_open_is_unfinished():
+    from extractor.listpage import is_unfinished
+
+    assert is_unfinished("Cooperative Education conference (Jan.") and is_unfinished("speaker Manage-")
+    assert is_unfinished('"Preparing Two-Year College Teachers for')
+    assert not is_unfinished("Workshops -- food preparation") and not is_unfinished('"Unique" theme')

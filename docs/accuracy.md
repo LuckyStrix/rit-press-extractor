@@ -109,8 +109,9 @@ in both copies ("alumi"). Anything else is flagged: a match by date only, by tex
 list entry carries the release's date), or several equally good candidates (listed in the
 reasons, with the subject left empty).
 
-"Verified" checks the spelling of the words that were read, not that none are missing: a
-word typed over another (half a line low, say) can drop out of the subject unnoticed.
+"Verified" checks the spelling of the words that were read, not that none are missing. A
+subject that visibly stops mid-way (on a hyphen, or with a bracket or quote open) is flagged,
+but a word typed over another (half a line low, say) can still drop out unnoticed.
 
 ### Which page starts a release
 

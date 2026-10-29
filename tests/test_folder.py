@@ -251,3 +251,11 @@ def test_a_rare_lowercase_word_is_flagged_though_the_word_list_knows_it():
                                                                       "show at the Bevier Gallery exhibit")])
     r = out.rows[0]
     assert r.subject_verified == "NO" and "('pnd')" in r.review_reasons
+
+
+def test_a_subject_cut_short_on_the_list_is_flagged():
+    page = _second_read(list_page("Nov. 2, 1970 Cooperative Education conference (Jan."), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Over 500 scientists will attend the "
+                                                                      "Cooperative Education conference in January")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "subject looks cut short" in r.review_reasons

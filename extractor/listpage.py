@@ -458,7 +458,7 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
         skip = len(row.printed.split())  # the subject starts after the printed date
         starts.append(words[skip].box[0] if skip < len(words) else words[0].box[0])
         ends.append(words[-1].box[2])
-    limit = _wrap_limit(read, height)
+    limit, pitch = _wrap_limit(read, height), _entry_pitch(read)
     dated = sorted(x for x, (_, r) in zip(starts, read) if r.abbr or r.day)
     edge = dated[len(dated) // 4] if dated else None  # where the subjects start
     widest = sorted(ends)[int(0.9 * (len(ends) - 1))] if ends else 0  # where the longest subjects end
@@ -470,17 +470,36 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
         # Co-op" never wraps, so an undated line below it is an entry whose day was missed); or it
         # is set in well to the right of where the subjects start.
         full = last_wrapped or edge is None or last_end >= edge + WRAP_FULL * (widest - edge)
-        wrapped = (limit and top - last_top < limit and full) or (edge is not None and x > edge + WRAP_INDENT * height)
+        # A line left unfinished ("Manage-", an open bracket or quote) goes on below, as long as
+        # the line below is closer than entries are to each other.
+        unfinished = bool(rows) and is_unfinished(rows[-1].subject) and pitch and top - last_top < pitch
+        wrapped = (limit and top - last_top < limit and full) or unfinished \
+            or (edge is not None and x > edge + WRAP_INDENT * height)
         is_wrap = bool(row.abbr is None and row.day is None and rows and wrapped)
         if is_wrap:
             prev = rows[-1]
-            prev.subject = _tidy(f"{prev.subject} {row.subject}")
+            # a word hyphenated at the line's end is joined again ("Manage-" + "ment")
+            split = re.search(r"[a-z]-$", prev.subject) and re.match(r"[a-z]", row.subject)
+            prev.subject = _tidy(prev.subject[:-1] + row.subject if split else f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
             prev.word_confs += row.word_confs
         else:
             rows.append(row)
         last_top, last_end, last_wrapped = top, end, is_wrap
     return rows, month, additional_x
+
+
+def is_unfinished(subject: str) -> bool:
+    """Does the subject stop mid-way: on a hyphen ("Manage-") or with a bracket or quote open?"""
+    s = subject.rstrip()
+    return s.endswith("-") and not s.endswith("--") or s.count("(") > s.count(")") \
+        or (s.count('"') + s.count("“") + s.count("”")) % 2 == 1
+
+
+def _entry_pitch(read: list[tuple[int, _Row]]) -> float | None:
+    """The usual spacing between entries: from each dated line back to the line above."""
+    pitches = sorted(t - p for (p, _), (t, r) in zip(read, read[1:]) if r.abbr or r.day)
+    return pitches[len(pitches) // 2] if pitches else None
 
 
 def _wrap_limit(read: list[tuple[int, _Row]], height: float) -> float | None:
