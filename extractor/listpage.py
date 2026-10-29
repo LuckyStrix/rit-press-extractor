@@ -41,6 +41,7 @@ DAY_COLUMN_ROWS = 0.8  # share of rows that start right of the "Date" heading on
 COLUMN_SLACK = 4  # notes start up to this many line heights left of their column's header word
 WRAP_PITCH = 0.75  # a wrapped line sits closer to the line above than this share of an entry's spacing
 SINGLE_SPACED = 1.8  # entries this many line heights apart are typed on consecutive lines
+WRAP_FULL = 0.7  # a line wraps only once it has filled this share of the subject column
 
 
 @dataclass
@@ -374,6 +375,10 @@ def _day(raw: str) -> int | None:
 
 def _tidy(subject: str) -> str:
     subject = _JUNK.sub(" ", subject).strip(" _~‘'`")
+    # Specks and stray dashes at either end ("° Unique", "Davidson NTID -"); quotes, brackets
+    # and a closing full stop belong to the subject.
+    subject = re.sub(r"^[^\w\"“(\[]+\s", "", subject)
+    subject = re.sub(r"\s[^\w\"”)\].!?]+$", "", subject)
     return re.sub(r"\s+", " ", subject).strip()
 
 
@@ -442,6 +447,7 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
     info_left = _info_left(lines[start:], additional_x, height)
     read: list[tuple[int, _Row]] = []  # each line's top and its reading
     starts: list[int] = []  # where each line's subject starts
+    ends: list[int] = []  # and where it ends
     for i, ln in enumerate(lines[start:], start):
         words = _subject_words(ln, additional_x, height, info_left)
         text = " ".join(w.text for w in words).strip()
@@ -451,23 +457,29 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
         read.append((ln.box[1], row))
         skip = len(row.printed.split())  # the subject starts after the printed date
         starts.append(words[skip].box[0] if skip < len(words) else words[0].box[0])
+        ends.append(words[-1].box[2])
     limit = _wrap_limit(read, height)
     dated = sorted(x for x, (_, r) in zip(starts, read) if r.abbr or r.day)
     edge = dated[len(dated) // 4] if dated else None  # where the subjects start
+    widest = sorted(ends)[int(0.9 * (len(ends) - 1))] if ends else 0  # where the longest subjects end
     rows: list[_Row] = []
-    last_top = 0  # top of the last line of the entry above
-    for (top, row), x in zip(read, starts):
+    last_top, last_end, last_wrapped = 0, 0, False  # the last line of the entry above: top, right end, a wrap?
+    for (top, row), x, end in zip(read, starts, ends):
         # A wrapped subject is typed closer to the line above it than entries are to each other,
-        # or set in well to the right of where the subjects start.
-        wrapped = (limit and top - last_top < limit) or (edge is not None and x > edge + WRAP_INDENT * height)
-        if row.abbr is None and row.day is None and rows and wrapped:
+        # once the entry's first line has run across the column (a short subject like "Thms Kolb
+        # Co-op" never wraps, so an undated line below it is an entry whose day was missed); or it
+        # is set in well to the right of where the subjects start.
+        full = last_wrapped or edge is None or last_end >= edge + WRAP_FULL * (widest - edge)
+        wrapped = (limit and top - last_top < limit and full) or (edge is not None and x > edge + WRAP_INDENT * height)
+        is_wrap = bool(row.abbr is None and row.day is None and rows and wrapped)
+        if is_wrap:
             prev = rows[-1]
             prev.subject = _tidy(f"{prev.subject} {row.subject}")
             prev.min_conf = min(prev.min_conf, row.min_conf)
             prev.word_confs += row.word_confs
         else:
             rows.append(row)
-        last_top = top
+        last_top, last_end, last_wrapped = top, end, is_wrap
     return rows, month, additional_x
 
 

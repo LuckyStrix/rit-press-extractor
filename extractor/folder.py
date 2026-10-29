@@ -20,6 +20,10 @@ from .subjects import Match, Release, match_subjects
 SUBJECT_MIN_CONF = 85.0  # Tesseract's floor for the words of a subject read as "verified"
 TYPO_MIN_LEN, TYPO_MAX_OFF = 5, 2  # a subject word this long, this many letters off a release word
 WORD_MIN_LEN = 4  # shorter subject words (initials, abbreviations) are not looked up in the word list
+# A lowercase word this rare (wordfreq's Zipf scale; "and" is 7.4) is a misreading even when the
+# list knows it as some abbreviation ("pnd" where a ruled line crosses "and"): abbreviations are
+# typed in capitals, and the common words of a subject are frequent.
+RARE_LOWER, RARE_LOWER_LEN = 3.0, 3
 
 
 @dataclass
@@ -88,24 +92,29 @@ def _unknown_words(entry: ListEntry, release: Release) -> list[str]:
     """Subject words that are no English word and that the release does not name. A typo on the
     list ("Visttors") or a misreading made the same way in both copies ("alumi") passes every
     comparison between readers; only a word list shows it. A name is no English word either, but
-    the release writes it with a capital letter, as it does no misread common word ("alumi")."""
+    the release writes it with a capital letter, as it does no misread common word ("alumi").
+    A rare word in lowercase is in doubt too ("pnd", "ourse")."""
     names = {k for w in " ".join([release.slug, release.text, release.body]).split()
              if w[:1].isupper() for k in word_parts(w)}
     unknown = []
     for w in entry.subject.split():
         for part in re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", w):
             k = part.lower().removesuffix("'s")
-            if len(k) >= WORD_MIN_LEN and k.replace("'", "") not in names and not _is_word(k):
+            if k.replace("'", "") in names:
+                continue
+            freq = _zipf(k)
+            if (len(k) >= WORD_MIN_LEN and freq == 0) or (part.islower() and len(k) >= RARE_LOWER_LEN and freq < RARE_LOWER):
                 unknown.append(w)
                 break
     return unknown
 
 
 @lru_cache(maxsize=None)
-def _is_word(word: str) -> bool:
+def _zipf(word: str) -> float:
+    """How common the word is in English (0: not a word)."""
     from wordfreq import zipf_frequency
 
-    return zipf_frequency(word, "en") > 0
+    return zipf_frequency(word, "en")
 
 
 def _letters_off(a: str, b: str) -> bool:

@@ -242,3 +242,12 @@ def test_a_misreading_made_the_same_way_in_the_release_is_still_flagged():
     out = assemble_folder("f1", [page, release_page("a.pdf", opening="Institute alumi will compete in a golf tournament")])
     r = out.rows[0]
     assert r.subject_verified == "NO" and "('Alumi')" in r.review_reasons
+
+
+def test_a_rare_lowercase_word_is_flagged_though_the_word_list_knows_it():
+    """A ruled line through "and" reads "pnd", which the word list has as an abbreviation."""
+    page = _second_read(list_page("Nov. 2, 1970 Bevier Gallery Exhibit Zandvoort pnd Coffey"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="Douglas Coffey and Hans Zandvoort will "
+                                                                      "show at the Bevier Gallery exhibit")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "('pnd')" in r.review_reasons

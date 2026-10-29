@@ -471,3 +471,25 @@ def test_a_missed_days_cell_does_not_take_the_day_of_the_row_above(monkeypatch):
 
     monkeypatch.setattr(ocr, "tesseract_digits", read)
     assert [w.text for w in pipeline._read_day_cell(page, (0, 2856, 548, 2912), days)] == ["24"]
+
+
+def test_an_undated_row_under_a_short_entry_on_a_single_spaced_list_is_its_own_entry():
+    """Box 2 folder 5: "Jan. 7" was not read beside Ritsko's row, typed a little closer than usual.
+    "Thms Kolb Co-op" is far too short to have wrapped, so the row below is another entry."""
+    rows = ["Jan. 7 Robert Backofen NTID-Cross Country", "Jan. 7 Thms Kolb Co-op",
+            "Alan J. Ritsko - Policy Committee", "Jan. 8 Sutherland resignation",
+            "Jan. 8 American Society for Quality Control", "Jan. 8 Am. Assoc. of Univ. Book Show"]
+    xs, ys = [100, 100, 184, 100, 100, 100], [280, 320, 358, 400, 440, 480]  # single-spaced; the subjects start at 184
+    head = [(100, 100, HEAD[0]), (100, 160, "MONTH . January 1, 1971 thru January 31, 1971"),
+            (100, 220, "Date"), (184, 220, "Subject"), (1000, 220, "Additional Info.")]
+    lines = layout_page(head + list(zip(xs, ys, rows)))
+    subjects = [e.subject for e in parse_list_pages([lines], 1971).entries]
+    assert "Thms Kolb Co-op" in subjects and "Alan J. Ritsko - Policy Committee" in subjects
+
+
+def test_stray_marks_at_either_end_of_a_subject_are_dropped():
+    from extractor.listpage import _tidy
+
+    assert _tidy("° Unique") == "Unique" and _tidy("Davidson NTID -") == "Davidson NTID"
+    assert _tidy('"Victory over Poverty" James McCuller') == '"Victory over Poverty" James McCuller'
+    assert _tidy("Prof. Smith named Jr.") == "Prof. Smith named Jr."

@@ -223,6 +223,16 @@ def _match_day(rels: list[Release], idxs: list[int], scorer: _Scorer, matches: d
         rivals = [score[i, k] for k in range(m) if k != j]
         if score[i, j] >= MIN_TEXT_SCORE and score[i, j] - max(rivals, default=0.0) >= MIN_MARGIN:
             claimed[j].append(i)
+    # A release sharing an entry with others, but the only one an unclaimed entry fits, is the
+    # release that entry names ("Kenneth A. Ross Co-op" beside the "Co-op Students" that fits
+    # every co-op release of the day).
+    for j, owners in list(claimed.items()):
+        for i in list(owners) if len(owners) > 1 else []:
+            own = [k for k in range(m) if k not in claimed and score[i, k] >= MIN_TEXT_SCORE
+                   and all(score[o, k] < MIN_TEXT_SCORE for o in range(n) if o != i)]
+            if len(own) == 1:
+                owners.remove(i)
+                claimed[own[0]] = [i]
     done_rels = {i for owners in claimed.values() for i in owners}
     for j, owners in claimed.items():
         copies = len(owners) > 1 and _same_text([rels[i] for i in owners])

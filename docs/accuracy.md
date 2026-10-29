@@ -100,7 +100,8 @@ its date and by what the release says, and it is marked verified only when:
 3. no subject word is a letter or two off a word of the release ("entollment" against
    "enrollment"); and
 4. every subject word of four or more letters is an English word (from the `wordfreq`
-   list) or a name the release writes with a capital letter.
+   list) or a name the release writes with a capital letter, and no lowercase word is a rare
+   one ("pnd" where a ruled line crosses "and": abbreviations are typed in capitals).
 
 Rules 3 and 4 catch what agreement between readers can't: typos and struck-over letters
 on the list itself, which every engine reads the same way, and a word misread the same way

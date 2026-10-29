@@ -180,3 +180,15 @@ def test_a_release_can_share_its_entry_with_the_memo_correcting_it():
                 release("gulf", 10, "", "Gulf Oil Corporation has given a capital grant of $15,000")]
     m = match_subjects(releases, entries).matches
     assert m["memo"].entry == 1 and (m["union"].entry, m["union"].method, m["union"].confident) == (1, "text", False)
+
+
+def test_a_release_sharing_a_general_entry_takes_the_entry_only_it_fits():
+    """Box 2 folder 5: "Co=op Students" fits every co-op release that day, but only Ross's names him."""
+    entries = [entry(3, "Kenneth A. Ross Co-op"), entry(3, "Co=op Students")]  # as typed: just "students" to go on
+    releases = [release("ross", 3, "", "Kenneth A. Ross, formerly of Penfield, has joined Sherwin Williams as a "
+                                       "cooperative education student"),
+                release("welsh", 3, "", "Gary R. Welsh has joined EKCO as a cooperative education student"),
+                release("meyer", 3, "", "Eileen S. Meyer has joined Stouffer's as a cooperative education student")]
+    res = match_subjects(releases, entries)
+    assert res.matches["ross"].entry == 0 and not res.matches["ross"].shared
+    assert all(res.matches[k].entry == 1 for k in ("welsh", "meyer"))
