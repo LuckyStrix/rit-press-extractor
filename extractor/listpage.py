@@ -42,6 +42,7 @@ COLUMN_SLACK = 4  # notes start up to this many line heights left of their colum
 WRAP_PITCH = 0.75  # a wrapped line sits closer to the line above than this share of an entry's spacing
 SINGLE_SPACED = 1.8  # entries this many line heights apart are typed on consecutive lines
 WRAP_FULL = 0.7  # a line wraps only once it has filled this share of the subject column
+MONTH_ROWS = 2  # rows that must start with a month for it to be the page's, when the header's is unread
 
 
 @dataclass
@@ -439,10 +440,13 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
     month = _header_month(lines) or month
     head = _header_row(lines)
     start = head + 1 if head is not None else 0
-    if month is None:  # no readable header month: the commonest cleanly printed one on this page
+    if month is None:  # no readable header month: the commonest cleanly printed one on this page,
+        # if it starts rows more than once ("July 27)" alone is the end of a wrapped subject); else
+        # the month most of the folder's releases are dated in
         seen = Counter(m["mon"].lower()[:3] for ln in lines[start:] if (m := _STRICT_ROW.match(ln.text))
                        and m["mon"].lower()[:3] in ABBR)
-        month = seen.most_common(1)[0][0] if seen else default_month
+        common = seen.most_common(1)
+        month = common[0][0] if common and common[0][1] >= MONTH_ROWS else default_month
     additional_x, height = _additional_x(lines, head) or additional_x, _height(lines[start:])
     info_left = _info_left(lines[start:], additional_x, height)
     read: list[tuple[int, _Row]] = []  # each line's top and its reading
@@ -470,10 +474,11 @@ def _rows(page_no: int, lines: list[Line], month: str | None, default_month: str
         # Co-op" never wraps, so an undated line below it is an entry whose day was missed); or it
         # is set in well to the right of where the subjects start.
         full = last_wrapped or edge is None or last_end >= edge + WRAP_FULL * (widest - edge)
-        # A line left unfinished ("Manage-", an open bracket or quote) goes on below, as long as
-        # the line below is closer than entries are to each other.
-        unfinished = bool(rows) and is_unfinished(rows[-1].subject) and pitch and top - last_top < pitch
-        wrapped = (limit and top - last_top < limit and full) or unfinished \
+        # A line that ran across the column, or was left unfinished ("Manage-", an open bracket or
+        # quote), goes on below as long as the line below is closer than entries usually are.
+        unfinished = bool(rows) and is_unfinished(rows[-1].subject)
+        wrapped = (limit and top - last_top < limit and full) \
+            or (pitch and top - last_top < pitch and (full or unfinished)) \
             or (edge is not None and x > edge + WRAP_INDENT * height)
         is_wrap = bool(row.abbr is None and row.day is None and rows and wrapped)
         if is_wrap:

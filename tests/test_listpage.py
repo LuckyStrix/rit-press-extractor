@@ -514,3 +514,18 @@ def test_a_subject_left_open_is_unfinished():
     assert is_unfinished("Cooperative Education conference (Jan.") and is_unfinished("speaker Manage-")
     assert is_unfinished('"Preparing Two-Year College Teachers for')
     assert not is_unfinished("Workshops -- food preparation") and not is_unfinished('"Unique" theme')
+
+
+def test_a_month_starting_one_wrapped_line_is_not_taken_for_the_page_month():
+    """Box 2 folder 10: the header month was unread, and "July 27)" (the end of a wrapped subject,
+    "workshop (June 22 - July 27)") was the only line starting with a month."""
+    head = [(100, 100, HEAD[0]), (100, 160, "MONTH 5 ee aia ws gees"),
+            (100, 220, "Date"), (184, 220, "Subject"), (1000, 220, "Additional Info.")]
+    rows = [(100, 300, "16"), (184, 300, "RIT receives Texaco Inc. grant of $1,500"),
+            (100, 370, "17"), (184, 370, "European travel-study workshop (June 22 -"), (184, 425, "July 27)"),
+            (100, 500, "17"), (184, 500, "Tuition increase in Continuing Education"),
+            (100, 570, "20"), (184, 570, "RIT plans Earth Day")]
+    result = parse_list_pages([layout_page(head + rows)], 1970, 4)
+    days = {e.subject: e.date for e in result.entries}
+    assert days["RIT receives Texaco Inc. grant of $1,500"] == dt.date(1970, 4, 16)
+    assert days["RIT plans Earth Day"] == dt.date(1970, 4, 20)

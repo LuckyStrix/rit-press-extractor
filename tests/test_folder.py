@@ -259,3 +259,11 @@ def test_a_subject_cut_short_on_the_list_is_flagged():
                                                                       "Cooperative Education conference in January")])
     r = out.rows[0]
     assert r.subject_verified == "NO" and "subject looks cut short" in r.review_reasons
+
+
+def test_a_subject_with_a_mark_no_typewriter_types_is_flagged():
+    page = _second_read(list_page("Nov. 2, 1970 Summer Session of the School of Printing«"), {})
+    out = assemble_folder("f1", [page, release_page("a.pdf", opening="A total of 33 courses will be offered in the "
+                                                                      "Summer Session of the School of Printing")])
+    r = out.rows[0]
+    assert r.subject_verified == "NO" and "subject has marks no typewriter types («)" in r.review_reasons

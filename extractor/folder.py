@@ -24,6 +24,8 @@ WORD_MIN_LEN = 4  # shorter subject words (initials, abbreviations) are not look
 # list knows it as some abbreviation ("pnd" where a ruled line crosses "and"): abbreviations are
 # typed in capitals, and the common words of a subject are frequent.
 RARE_LOWER, RARE_LOWER_LEN = 3.0, 3
+# What a typewriter types; anything else in a subject ("Printing«", "publish¢s") is a misread speck.
+TYPED = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,;:'\"!?()&-/$%#*+=@“”‘’—–")
 
 
 @dataclass
@@ -161,9 +163,14 @@ def _apply_match(row: Row, match: Match, entries: list[ListEntry], release: Rele
     # A subject that stops mid-way ("(Jan.", "Manage-") lost its end on the list: words that were
     # not read at all can't be doubted one by one.
     cut = is_unfinished(entry.subject)
-    if cut and match.method == "date+text":
-        _add_reasons(row, "subject looks cut short (it ends mid-way); check the rest on the list page")
-    row.subject_verified = "YES" if match.confident and not doubts and not typos and not unknown and not cut else "NO"
+    stray = sorted(set(entry.subject) - TYPED)
+    if match.method == "date+text":
+        if cut:
+            _add_reasons(row, "subject looks cut short (it ends mid-way); check the rest on the list page")
+        if stray:
+            _add_reasons(row, f"subject has marks no typewriter types ({' '.join(stray)}); check it")
+    row.subject_verified = "YES" if (match.confident and not doubts and not typos and not unknown and not cut
+                                     and not stray) else "NO"
 
 
 def _leading_lists(pages: list[PageIn]) -> list[PageIn]:
